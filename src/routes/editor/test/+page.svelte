@@ -1,7 +1,24 @@
 <script lang="ts">
-  let title = $state('HBR Wegweiser');
-  let destination1 = $state('Musterziel');
-  let distance1 = $state('2,4 km');
+  type Direction = 'left' | 'right';
+
+  let farDestination = $state('Fernziel');
+  let farDistance = $state('1,0');
+  let nearDestination = $state('Nahziel');
+  let nearDistance = $state('5,6');
+  let direction = $state<Direction>('right');
+
+  const signPath = $derived(
+    direction === 'right'
+      ? 'M40 30H880L970 125L880 220H40Z'
+      : 'M960 30H120L30 125L120 220H960Z'
+  );
+  const arrowFillPath = $derived(
+    direction === 'right'
+      ? 'M880 30L970 125L880 220Z'
+      : 'M120 30L30 125L120 220Z'
+  );
+  const labelX = $derived(direction === 'right' ? 235 : 300);
+  const distanceX = $derived(direction === 'right' ? 690 : 755);
 </script>
 
 <svelte:head>
@@ -12,7 +29,7 @@
   <header class="editor-header">
     <a href="/">Startseite</a>
     <h1>Editor-Test</h1>
-    <p>Grundlayout für Formular und SVG-Vorschau.</p>
+    <p>Erster fachlicher MVP für einen HBR-Pfeilwegweiser.</p>
   </header>
 
   <section class="editor-grid" aria-label="Editor-Arbeitsbereich">
@@ -20,20 +37,41 @@
       <p class="eyebrow">Formular</p>
       <h2>Eingaben</h2>
       <form class="editor-form">
-        <label>
-          <span>Titel</span>
-          <input bind:value={title} name="title" type="text" />
-        </label>
+        <div class="form-row">
+          <label>
+            <span>Fernziel oben</span>
+            <input bind:value={farDestination} name="farDestination" type="text" />
+          </label>
 
-        <label>
-          <span>Ziel 1</span>
-          <input bind:value={destination1} name="destination1" type="text" />
-        </label>
+          <label>
+            <span>Entfernung</span>
+            <input bind:value={farDistance} name="farDistance" type="text" />
+          </label>
+        </div>
 
-        <label>
-          <span>Entfernung 1</span>
-          <input bind:value={distance1} name="distance1" type="text" />
-        </label>
+        <div class="form-row">
+          <label>
+            <span>Nahziel zweite Zeile</span>
+            <input bind:value={nearDestination} name="nearDestination" type="text" />
+          </label>
+
+          <label>
+            <span>Entfernung</span>
+            <input bind:value={nearDistance} name="nearDistance" type="text" />
+          </label>
+        </div>
+
+        <fieldset class="direction-field">
+          <legend>Richtung</legend>
+          <label class="radio-option">
+            <input bind:group={direction} name="direction" type="radio" value="left" />
+            <span>linksweisend</span>
+          </label>
+          <label class="radio-option">
+            <input bind:group={direction} name="direction" type="radio" value="right" />
+            <span>rechtsweisend</span>
+          </label>
+        </fieldset>
       </form>
     </div>
 
@@ -47,60 +85,77 @@
           viewBox="0 0 1000 250"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <title id="sign-title">{title}</title>
+          <title id="sign-title">HBR-Pfeilwegweiser</title>
           <desc id="sign-description">
-            Pfeilwegweiser mit Ziel {destination1} und Entfernung {distance1}.
+            Pfeilwegweiser mit Fernziel {farDestination}, Nahziel {nearDestination}
+            und Richtung {direction === 'right' ? 'rechts' : 'links'}.
           </desc>
-          <rect width="1000" height="250" fill="#eef2f7" />
+          <rect width="1000" height="250" fill="#f8fafc" />
           <path
-            d="M40 45H795L960 125L795 205H40Z"
+            d={signPath}
             fill="#ffffff"
-            stroke="#1e293b"
+            stroke="#8f8f8f"
             stroke-linejoin="round"
-            stroke-width="10"
-          />
-          <path d="M795 45L960 125L795 205" fill="#f8fafc" opacity="0.8" />
-          <line
-            x1="795"
-            x2="795"
-            y1="52"
-            y2="198"
-            stroke="#d5dce8"
             stroke-width="4"
           />
+          <path d={arrowFillPath} fill="#d7001f" />
+          <line
+            x1={direction === 'right' ? 880 : 120}
+            x2={direction === 'right' ? 880 : 120}
+            y1="34"
+            y2="216"
+            stroke="#c8c8c8"
+            stroke-width="3"
+          />
+
+
           <text
-            x="82"
-            y="88"
-            fill="#334155"
+            x={labelX}
+            y="92"
+            fill="#d7001f"
             font-family="Arial, Helvetica, sans-serif"
-            font-size="42"
-            font-weight="700"
+            font-size="58"
+            font-weight="500"
           >
-            {title}
+            {farDestination}
           </text>
           <text
-            x="82"
-            y="158"
-            fill="#111827"
+            x={distanceX}
+            y="92"
+            fill="#d7001f"
             font-family="Arial, Helvetica, sans-serif"
-            font-size="66"
-            font-weight="800"
+            font-size="58"
+            font-weight="500"
+            text-anchor="end"
           >
-            {destination1}
+            {farDistance}
           </text>
           <text
-            x="630"
-            y="158"
-            fill="#111827"
+            x={labelX}
+            y="170"
+            fill="#d7001f"
             font-family="Arial, Helvetica, sans-serif"
-            font-size="52"
-            font-weight="700"
-            text-anchor="middle"
+            font-size="58"
+            font-weight="500"
           >
-            {distance1}
+            {nearDestination}
+          </text>
+          <text
+            x={distanceX}
+            y="170"
+            fill="#d7001f"
+            font-family="Arial, Helvetica, sans-serif"
+            font-size="58"
+            font-weight="500"
+            text-anchor="end"
+          >
+            {nearDistance}
           </text>
         </svg>
       </div>
+      <p class="direction-label">
+        {direction === 'right' ? 'rechtsweisend' : 'linksweisend'}
+      </p>
     </div>
   </section>
 </main>
