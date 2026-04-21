@@ -16,18 +16,14 @@
 </script>
 
 <form class="editor-form" novalidate>
+  {#if errors.form}
+    <p class="form-error">{errors.form}</p>
+  {/if}
+
   <div class="form-row">
     <label>
-      <span>Fernziel oben</span>
-      <input
-        aria-invalid={Boolean(errors.farDestination)}
-        bind:value={data.farDestination}
-        name="farDestination"
-        type="text"
-      />
-      {#if errors.farDestination}
-        <small>{errors.farDestination}</small>
-      {/if}
+      <span>Obere Zielzeile</span>
+      <input bind:value={data.farDestination} name="farDestination" type="text" />
     </label>
 
     <label>
@@ -35,6 +31,7 @@
       <input
         aria-invalid={Boolean(errors.farDistance)}
         bind:value={data.farDistance}
+        inputmode="decimal"
         name="farDistance"
         onblur={() => formatField('farDistance')}
         type="text"
@@ -47,7 +44,7 @@
 
   <div class="form-row">
     <label>
-      <span>Nahziel zweite Zeile</span>
+      <span>Untere Zielzeile</span>
       <input bind:value={data.nearDestination} name="nearDestination" type="text" />
     </label>
 
@@ -56,6 +53,7 @@
       <input
         aria-invalid={Boolean(errors.nearDistance)}
         bind:value={data.nearDistance}
+        inputmode="decimal"
         name="nearDistance"
         onblur={() => formatField('nearDistance')}
         type="text"

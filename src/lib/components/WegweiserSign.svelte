@@ -1,24 +1,17 @@
 <script lang="ts">
   import type { WegweiserData } from '$lib/wegweiser';
-  import { formatDistance } from '$lib/wegweiser';
+  import {
+    formatDistance,
+    getLineYPositions,
+    getSignGeometry,
+    getVisibleLines
+  } from '$lib/wegweiser';
 
   let { data }: { data: WegweiserData } = $props();
 
-  const signPath = $derived(
-    data.direction === 'right'
-      ? 'M40 30H880L970 125L880 220H40Z'
-      : 'M960 30H120L30 125L120 220H960Z'
-  );
-  const arrowFillPath = $derived(
-    data.direction === 'right'
-      ? 'M880 30L970 125L880 220Z'
-      : 'M120 30L30 125L120 220Z'
-  );
-  const labelX = $derived(data.direction === 'right' ? 140 : 225);
-  const distanceX = $derived(data.direction === 'right' ? 765 : 830);
-  const arrowDividerX = $derived(data.direction === 'right' ? 880 : 120);
-  const farDistance = $derived(formatDistance(data.farDistance));
-  const nearDistance = $derived(formatDistance(data.nearDistance));
+  const geometry = $derived(getSignGeometry(data.direction));
+  const visibleLines = $derived(getVisibleLines(data).filter((line) => line.destination));
+  const lineYPositions = $derived(getLineYPositions(visibleLines.length));
 </script>
 
 <svg
@@ -29,70 +22,70 @@
 >
   <title id="sign-title">HBR-Pfeilwegweiser</title>
   <desc id="sign-description">
-    Pfeilwegweiser mit Fernziel {data.farDestination}, Nahziel {data.nearDestination}
+    Pfeilwegweiser mit {visibleLines.length} Zielzeile{visibleLines.length === 1 ? '' : 'n'}
     und Richtung {data.direction === 'right' ? 'rechts' : 'links'}.
   </desc>
   <rect width="1000" height="250" fill="#f8fafc" />
   <path
-    d={signPath}
+    d={geometry.signPath}
     fill="#ffffff"
     stroke="#8f8f8f"
     stroke-linejoin="round"
     stroke-width="4"
   />
-  <path d={arrowFillPath} fill="#d7001f" />
+  <path d={geometry.arrowFillPath} fill="#d7001f" />
   <line
-    x1={arrowDividerX}
-    x2={arrowDividerX}
-    y1="34"
-    y2="216"
+    x1={geometry.arrowDividerX}
+    x2={geometry.arrowDividerX}
+    y1="32"
+    y2="218"
     stroke="#c8c8c8"
     stroke-width="3"
   />
+  <line
+    x1={geometry.targetAreaEndX}
+    x2={geometry.targetAreaEndX}
+    y1="48"
+    y2="202"
+    stroke="#c8c8c8"
+    stroke-dasharray="10 8"
+    stroke-width="3"
+    opacity="0.65"
+  />
+  <line
+    x1={geometry.distanceAreaStartX}
+    x2={geometry.distanceAreaStartX}
+    y1="48"
+    y2="202"
+    stroke="#c8c8c8"
+    stroke-dasharray="10 8"
+    stroke-width="3"
+    opacity="0.65"
+  />
 
-  <text
-    x={labelX}
-    y="92"
-    fill="#d7001f"
-    font-family="Arial, Helvetica, sans-serif"
-    font-size="58"
-    font-weight="500"
-  >
-    {data.farDestination || 'Fernziel'}
-  </text>
-  <text
-    x={distanceX}
-    y="92"
-    fill="#d7001f"
-    font-family="Arial, Helvetica, sans-serif"
-    font-size="58"
-    font-weight="500"
-    text-anchor="end"
-  >
-    {farDistance}
-  </text>
-
-  {#if data.nearDestination.trim()}
+  {#each visibleLines as line, index}
     <text
-      x={labelX}
-      y="170"
+      x={geometry.contentStartX}
+      y={lineYPositions[index]}
       fill="#d7001f"
       font-family="Arial, Helvetica, sans-serif"
       font-size="58"
       font-weight="500"
+      dominant-baseline="middle"
     >
-      {data.nearDestination}
+      {line.destination}
     </text>
-  {/if}
-  <text
-    x={distanceX}
-    y="170"
-    fill="#d7001f"
-    font-family="Arial, Helvetica, sans-serif"
-    font-size="58"
-    font-weight="500"
-    text-anchor="end"
-  >
-    {nearDistance}
-  </text>
+    <text
+      x={geometry.distanceEndX}
+      y={lineYPositions[index]}
+      fill="#d7001f"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="58"
+      font-weight="500"
+      dominant-baseline="middle"
+      text-anchor="end"
+    >
+      {formatDistance(line.distance)}
+    </text>
+  {/each}
 </svg>

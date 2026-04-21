@@ -160,10 +160,19 @@ p {
   border-color: #b42318;
 }
 
-.editor-form small {
+.editor-form small,
+.form-error {
   color: #b42318;
   font-size: 0.82rem;
   font-weight: 600;
+}
+
+.form-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f1b8b3;
+  border-radius: 6px;
+  background: #fff4f2;
 }
 
 .direction-field {
@@ -206,18 +215,7 @@ p {
   overflow-x: auto;
   border: 1px solid #d9dee8;
   border-radius: 6px;
-  background:
-    linear-gradient(45deg, #f3f6fa 25%, transparent 25%),
-    linear-gradient(-45deg, #f3f6fa 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #f3f6fa 75%),
-    linear-gradient(-45deg, transparent 75%, #f3f6fa 75%);
-  background-color: #fff;
-  background-position:
-    0 0,
-    0 10px,
-    10px -10px,
-    -10px 0;
-  background-size: 20px 20px;
+  background: #eef2f7;
 }
 
 .svg-preview svg {
