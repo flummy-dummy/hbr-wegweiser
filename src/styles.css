@@ -126,8 +126,23 @@ p {
 
 .form-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(96px, 140px);
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 150px);
   gap: 14px;
+}
+
+.form-row.with-pictogram {
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 170px) minmax(96px, 130px);
+}
+
+.line-fieldset {
+  display: grid;
+  gap: 10px;
+}
+
+.field-group-title {
+  margin: 0;
+  color: #334155;
+  font-weight: 800;
 }
 
 .editor-form label {
@@ -137,7 +152,8 @@ p {
   font-weight: 700;
 }
 
-.editor-form input {
+.editor-form input,
+.editor-form select {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
@@ -145,13 +161,15 @@ p {
   border-radius: 6px;
   color: #18212f;
   font: inherit;
+  background: #fff;
 }
 
 .form-row label:last-child input {
   text-align: right;
 }
 
-.editor-form input:focus {
+.editor-form input:focus,
+.editor-form select:focus {
   border-color: #1f4f91;
   outline: 3px solid #c9ddff;
 }
@@ -175,7 +193,8 @@ p {
   background: #fff4f2;
 }
 
-.direction-field {
+.direction-field,
+.routes-field {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -184,14 +203,16 @@ p {
   border: 0;
 }
 
-.direction-field legend {
+.direction-field legend,
+.routes-field legend {
   width: 100%;
   margin-bottom: 2px;
   color: #334155;
   font-weight: 700;
 }
 
-.radio-option {
+.radio-option,
+.checkbox-option {
   display: inline-flex;
   align-items: center;
   min-height: 42px;
@@ -201,11 +222,18 @@ p {
   background: #fff;
 }
 
-.radio-option input {
+.radio-option input,
+.checkbox-option input {
   width: auto;
   min-height: auto;
   margin: 0 8px 0 0;
   padding: 0;
+}
+
+.route-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .svg-preview {
@@ -221,8 +249,51 @@ p {
 .svg-preview svg {
   width: min(100%, 1000px);
   height: auto;
-  aspect-ratio: 4 / 1;
+  aspect-ratio: 1000 / 330;
   box-shadow: 0 18px 40px rgb(15 23 42 / 12%);
+}
+
+.svg-pictogram rect {
+  fill: #fff;
+  stroke: #d7001f;
+  stroke-width: 2;
+}
+
+.svg-pictogram text {
+  fill: #d7001f;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.svg-route-item text {
+  text-wrap: balance;
+}
+
+.svg-pictogram path,
+.svg-pictogram circle {
+  fill: none;
+  stroke: #d7001f;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.svg-route-item rect {
+  fill: #fff;
+  stroke: #2f4778;
+  stroke-width: 2;
+}
+
+.svg-route-item text {
+  fill: #1f2a44;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 
@@ -240,7 +311,8 @@ p {
     min-height: 360px;
   }
 
-  .form-row {
+  .form-row,
+  .form-row.with-pictogram {
     grid-template-columns: 1fr;
   }
 
