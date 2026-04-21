@@ -45,6 +45,12 @@ jspm_packages/
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
+# SvelteKit / Vite
+.svelte-kit
+build
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
 # TypeScript cache
 *.tsbuildinfo
 
@@ -74,6 +80,8 @@ web_modules/
 
 # dotenv environment variable files
 .env
+.env.*
+!.env.example
 .env.development.local
 .env.test.local
 .env.production.local
