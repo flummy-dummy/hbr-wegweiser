@@ -2,24 +2,33 @@
   import type { DestinationPictogram, WegweiserData } from '$lib/wegweiser';
   import {
     formatDistance,
-    getLineYPositions,
     getRouteLabel,
+    getRouteFontSize,
+    getRouteTextLines,
     getSignGeometry,
-    getVisibleLines
+    getWegweiserRows,
+    wegweiserLayout
   } from '$lib/wegweiser';
 
   let { data }: { data: WegweiserData } = $props();
 
   const geometry = $derived(getSignGeometry(data.direction));
-  const visibleLines = $derived(getVisibleLines(data).filter((line) => line.destination));
-  const lineYPositions = $derived(getLineYPositions(visibleLines.length));
+  const visibleLines = $derived(getWegweiserRows(data).filter((line) => line.hasDestination));
   const routes = $derived(data.routes.slice(0, 6));
+
   function routeX(index: number) {
     const step = index * (geometry.routeSize + geometry.routeGap);
 
     return geometry.routeDirection === -1
       ? geometry.routeAnchorX - geometry.routeSize - step
       : geometry.routeAnchorX + step;
+  }
+
+  function routeTextY(label: string) {
+    const lines = getRouteTextLines(label);
+    const lineHeight = getRouteFontSize(label) + 2;
+
+    return geometry.routeY + geometry.routeSize / 2 - ((lines.length - 1) * lineHeight) / 2;
   }
 
   function pictogramLabel(pictogram: DestinationPictogram) {
@@ -33,7 +42,7 @@
 <svg
   role="img"
   aria-labelledby="sign-title sign-description"
-  viewBox="0 0 1000 330"
+  viewBox={`0 0 ${wegweiserLayout.ansichtBreite} ${wegweiserLayout.ansichtHoehe}`}
   xmlns="http://www.w3.org/2000/svg"
 >
   <title id="sign-title">HBR-Pfeilwegweiser</title>
@@ -41,7 +50,7 @@
     Pfeilwegweiser mit {visibleLines.length} Zielzeile{visibleLines.length === 1 ? '' : 'n'}
     und Richtung {data.direction === 'right' ? 'rechts' : 'links'}.
   </desc>
-  <rect width="1000" height="330" fill="#f8fafc" />
+  <rect width={wegweiserLayout.ansichtBreite} height={wegweiserLayout.ansichtHoehe} fill="#f8fafc" />
   <path
     d={geometry.signPath}
     fill="#ffffff"
@@ -53,16 +62,16 @@
   <line
     x1={geometry.arrowDividerX}
     x2={geometry.arrowDividerX}
-    y1="32"
-    y2="218"
+    y1={geometry.dividerY1}
+    y2={geometry.dividerY2}
     stroke="#d7001f"
     stroke-width="3"
   />
   <line
     x1={geometry.iconAreaEndX}
     x2={geometry.iconAreaEndX}
-    y1="48"
-    y2="202"
+    y1={geometry.guideY1}
+    y2={geometry.guideY2}
     stroke="#c8c8c8"
     stroke-dasharray="10 8"
     stroke-width="3"
@@ -71,8 +80,8 @@
   <line
     x1={geometry.targetAreaEndX}
     x2={geometry.targetAreaEndX}
-    y1="48"
-    y2="202"
+    y1={geometry.guideY1}
+    y2={geometry.guideY2}
     stroke="#c8c8c8"
     stroke-dasharray="10 8"
     stroke-width="3"
@@ -81,16 +90,16 @@
   <line
     x1={geometry.distanceAreaStartX}
     x2={geometry.distanceAreaStartX}
-    y1="48"
-    y2="202"
+    y1={geometry.guideY1}
+    y2={geometry.guideY2}
     stroke="#c8c8c8"
     stroke-dasharray="10 8"
     stroke-width="3"
     opacity="0.6"
   />
 
-  {#each visibleLines as line, index}
-    {@const y = lineYPositions[index]}
+  {#each visibleLines as line}
+    {@const y = line.y}
     {#if line.pictogram !== 'none'}
       <g class="svg-pictogram">
         <rect
@@ -115,7 +124,7 @@
       y={y}
       fill="#d7001f"
       font-family="Arial, Helvetica, sans-serif"
-      font-size="58"
+      font-size={wegweiserLayout.textSchriftGroesse}
       font-weight="500"
       dominant-baseline="middle"
     >
@@ -126,7 +135,7 @@
       y={y}
       fill="#d7001f"
       font-family="Arial, Helvetica, sans-serif"
-      font-size="58"
+      font-size={wegweiserLayout.textSchriftGroesse}
       font-weight="500"
       dominant-baseline="middle"
       text-anchor="end"
@@ -138,6 +147,10 @@
   {#if routes.length}
     {#each routes as route, index}
       {@const x = routeX(index)}
+      {@const label = getRouteLabel(route)}
+      {@const labelLines = getRouteTextLines(label)}
+      {@const fontSize = getRouteFontSize(label)}
+      {@const lineHeight = fontSize + 2}
       <g class="svg-route-item">
         <rect
           x={x}
@@ -146,8 +159,16 @@
           height={geometry.routeSize}
           rx="2"
         />
-        <text x={x + geometry.routeSize / 2} y={geometry.routeY + geometry.routeSize / 2}>
-          {getRouteLabel(route)}
+        <text font-size={fontSize}>
+          {#each labelLines as labelLine, lineIndex}
+            <tspan
+              x={x + geometry.routeSize / 2}
+              y={lineIndex === 0 ? routeTextY(label) : undefined}
+              dy={lineIndex === 0 ? undefined : lineHeight}
+            >
+              {labelLine}
+            </tspan>
+          {/each}
         </text>
       </g>
     {/each}

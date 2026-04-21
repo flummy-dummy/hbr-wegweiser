@@ -25,11 +25,45 @@ export type WegweiserLine = {
   pictogram: DestinationPictogram;
 };
 
+export type WegweiserRow = WegweiserLine & {
+  key: 'far' | 'near';
+  y: number;
+  hasDestination: boolean;
+};
+
 export type WegweiserValidation = {
   form?: string;
   farDistance?: string;
   nearDistance?: string;
 };
+
+export const wegweiserLayout = {
+  ansichtBreite: 1000,
+  ansichtHoehe: 330,
+  schildBreite: 936,
+  schildHoehe: 194,
+  schildLinks: 36,
+  schildOben: 28,
+  schildMitteY: 125,
+  pfeilBreite: 100,
+  piktogrammSpalteBreite: 82,
+  textBereichBreite: 494,
+  entfernungBereichBreite: 160,
+  innenabstand: 40,
+  spaltenAbstand: 20,
+  piktogrammGroesse: 56,
+  textSchriftGroesse: 58,
+  linienY: {
+    oben: 88,
+    unten: 162,
+    einzeln: 125
+  },
+  einschubQuadratGroesse: 74,
+  einschubAbstand: 8,
+  einschubY: 238,
+  einschubSchriftGroesse: 11,
+  einschubKleineSchriftGroesse: 9
+} as const;
 
 export const pictogramOptions: Array<{ value: DestinationPictogram; label: string }> = [
   { value: 'none', label: 'kein Piktogramm' },
@@ -100,6 +134,34 @@ export function getVisibleLines(data: WegweiserData): WegweiserLine[] {
   ].filter((line) => line.destination || line.distance);
 }
 
+export function getWegweiserRows(data: WegweiserData): WegweiserRow[] {
+  const rows: WegweiserRow[] = [
+    {
+      key: 'far',
+      destination: data.farDestination.trim(),
+      distance: data.farDistance.trim(),
+      pictogram: data.farPictogram,
+      y: wegweiserLayout.linienY.oben,
+      hasDestination: Boolean(data.farDestination.trim())
+    },
+    {
+      key: 'near',
+      destination: data.nearDestination.trim(),
+      distance: data.nearDistance.trim(),
+      pictogram: data.nearPictogram,
+      y: wegweiserLayout.linienY.unten,
+      hasDestination: Boolean(data.nearDestination.trim())
+    }
+  ];
+  const populatedRows = rows.filter((row) => row.destination || row.distance);
+
+  if (populatedRows.length === 1 && rows[0].hasDestination && !rows[1].hasDestination) {
+    return [{ ...rows[0], y: wegweiserLayout.linienY.einzeln }];
+  }
+
+  return populatedRows;
+}
+
 function validateLine(destination: string, distance: string): string | undefined {
   if (!destination.trim() && distance.trim()) {
     return 'Entfernung nur mit Zielzeile eintragen.';
@@ -143,23 +205,45 @@ function escapeSvgText(value: string): string {
 
 export function getSignGeometry(direction: Direction) {
   const isRight = direction === 'right';
+  const layout = wegweiserLayout;
+  const signRight = layout.schildLinks + layout.schildBreite;
+  const signBottom = layout.schildOben + layout.schildHoehe;
+  const rightArrowBaseX = signRight - layout.pfeilBreite;
+  const leftArrowBaseX = layout.schildLinks + layout.pfeilBreite;
+  const bodyStartX = isRight ? layout.schildLinks : leftArrowBaseX;
+  const bodyEndX = isRight ? rightArrowBaseX : signRight;
+  const contentStartX = bodyStartX + layout.innenabstand + layout.piktogrammSpalteBreite;
+  const targetAreaEndX = contentStartX + layout.textBereichBreite;
+  const distanceAreaStartX = targetAreaEndX + layout.spaltenAbstand;
+  const distanceEndX = distanceAreaStartX + layout.entfernungBereichBreite;
+  const iconAreaEndX = bodyStartX + layout.innenabstand + layout.piktogrammSpalteBreite - layout.spaltenAbstand;
 
   return {
-    signPath: isRight ? 'M36 28H872L972 125L872 222H36Z' : 'M964 28H128L28 125L128 222H964Z',
-    arrowFillPath: isRight ? 'M872 28L972 125L872 222Z' : 'M128 28L28 125L128 222Z',
-    arrowDividerX: isRight ? 872 : 128,
-    iconX: isRight ? 76 : 168,
-    iconSize: 56,
-    contentStartX: isRight ? 158 : 250,
-    distanceEndX: isRight ? 820 : 920,
-    iconAreaEndX: isRight ? 142 : 234,
-    targetAreaEndX: isRight ? 640 : 740,
-    distanceAreaStartX: isRight ? 660 : 760,
-    routeAnchorX: isRight ? 872 : 128,
+    signPath: isRight
+      ? `M${layout.schildLinks} ${layout.schildOben}H${rightArrowBaseX}L${signRight} ${layout.schildMitteY}L${rightArrowBaseX} ${signBottom}H${layout.schildLinks}Z`
+      : `M${signRight} ${layout.schildOben}H${leftArrowBaseX}L${layout.schildLinks - 8} ${layout.schildMitteY}L${leftArrowBaseX} ${signBottom}H${signRight}Z`,
+    arrowFillPath: isRight
+      ? `M${rightArrowBaseX} ${layout.schildOben}L${signRight} ${layout.schildMitteY}L${rightArrowBaseX} ${signBottom}Z`
+      : `M${leftArrowBaseX} ${layout.schildOben}L${layout.schildLinks - 8} ${layout.schildMitteY}L${leftArrowBaseX} ${signBottom}Z`,
+    arrowDividerX: isRight ? rightArrowBaseX : leftArrowBaseX,
+    iconX: bodyStartX + layout.innenabstand,
+    iconSize: layout.piktogrammGroesse,
+    contentStartX,
+    distanceEndX,
+    iconAreaEndX,
+    targetAreaEndX,
+    distanceAreaStartX,
+    routeAnchorX: isRight ? rightArrowBaseX : leftArrowBaseX,
     routeDirection: isRight ? -1 : 1,
-    routeSize: 74,
-    routeGap: 8,
-    routeY: 238
+    routeSize: layout.einschubQuadratGroesse,
+    routeGap: layout.einschubAbstand,
+    routeY: layout.einschubY,
+    guideY1: layout.schildOben + 20,
+    guideY2: signBottom - 20,
+    dividerY1: layout.schildOben + 4,
+    dividerY2: signBottom - 4,
+    targetTextWidth: layout.textBereichBreite,
+    distanceTextWidth: layout.entfernungBereichBreite
   };
 }
 
@@ -198,6 +282,40 @@ function getPictogramMarkup(
   </g>`;
 }
 
+export function getRouteTextLines(label: string): string[] {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return [''];
+  }
+
+  if (label.length <= 10 || words.length === 1) {
+    return [label];
+  }
+
+  const middle = label.length / 2;
+  let breakIndex = 1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let firstLine = '';
+
+  for (let index = 1; index < words.length; index += 1) {
+    firstLine = words.slice(0, index).join(' ');
+    const distance = Math.abs(firstLine.length - middle);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      breakIndex = index;
+    }
+  }
+
+  const lines = [words.slice(0, breakIndex).join(' '), words.slice(breakIndex).join(' ')];
+  return lines.filter(Boolean).slice(0, 2);
+}
+
+export function getRouteFontSize(label: string): number {
+  const longestLine = Math.max(...getRouteTextLines(label).map((line) => line.length));
+
+  return longestLine > 11 ? wegweiserLayout.einschubKleineSchriftGroesse : wegweiserLayout.einschubSchriftGroesse;
+}
+
 function getRouteMarkup(data: WegweiserData): string {
   const geometry = getSignGeometry(data.direction);
   const routes = data.routes.slice(0, 6);
@@ -211,9 +329,19 @@ function getRouteMarkup(data: WegweiserData): string {
       const x = geometry.routeDirection === -1
         ? geometry.routeAnchorX - geometry.routeSize - step
         : geometry.routeAnchorX + step;
+      const label = getRouteLabel(route);
+      const lines = getRouteTextLines(label);
+      const fontSize = getRouteFontSize(label);
+      const lineHeight = fontSize + 2;
+      const textY = geometry.routeY + geometry.routeSize / 2 - ((lines.length - 1) * lineHeight) / 2;
+      const tspans = lines
+        .map((line, lineIndex) =>
+          `<tspan x="${x + geometry.routeSize / 2}" ${lineIndex === 0 ? `y="${textY}"` : `dy="${lineHeight}"`}>${escapeSvgText(line)}</tspan>`
+        )
+        .join('');
       return `<g class="route-item">
     <rect x="${x}" y="${geometry.routeY}" width="${geometry.routeSize}" height="${geometry.routeSize}" rx="2"/>
-    <text x="${x + geometry.routeSize / 2}" y="${geometry.routeY + geometry.routeSize / 2}">${escapeSvgText(getRouteLabel(route))}</text>
+    <text font-size="${fontSize}">${tspans}</text>
   </g>`;
     })
     .join('\n');
@@ -221,11 +349,10 @@ function getRouteMarkup(data: WegweiserData): string {
 
 export function buildWegweiserSvg(data: WegweiserData): string {
   const geometry = getSignGeometry(data.direction);
-  const lines = getVisibleLines(data).filter((line) => line.destination);
-  const yPositions = getLineYPositions(lines.length);
-  const textLines = lines
-    .map((line, index) => {
-      const y = yPositions[index] ?? yPositions[yPositions.length - 1];
+  const rows = getWegweiserRows(data).filter((row) => row.hasDestination);
+  const textLines = rows
+    .map((line) => {
+      const y = line.y;
       return `${getPictogramMarkup(line.pictogram, geometry.iconX, y, geometry.iconSize)}
   <text x="${geometry.contentStartX}" y="${y}" class="target-text">${escapeSvgText(line.destination)}</text>
   <text x="${geometry.distanceEndX}" y="${y}" class="distance-text">${escapeSvgText(formatDistance(line.distance))}</text>`;
@@ -241,18 +368,18 @@ export function buildWegweiserSvg(data: WegweiserData): string {
     .arrow{fill:#d7001f}
     .divider{stroke:#d7001f;stroke-width:3}
     .area-divider{stroke:#c8c8c8;stroke-width:3;stroke-dasharray:10 8;opacity:.6}
-    .target-text,.distance-text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:58px;font-weight:500;dominant-baseline:middle}
+    .target-text,.distance-text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:${wegweiserLayout.textSchriftGroesse}px;font-weight:500;dominant-baseline:middle}
     .distance-text{text-anchor:end}
     .pictogram rect{fill:#fff;stroke:#d7001f;stroke-width:2}.pictogram text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;text-anchor:middle;dominant-baseline:middle}.picto-line{fill:none;stroke:#d7001f;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;text-anchor:middle;dominant-baseline:middle}
+    .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}
   </style>
-  <rect width="1000" height="330" fill="#f8fafc"/>
+  <rect width="${wegweiserLayout.ansichtBreite}" height="${wegweiserLayout.ansichtHoehe}" fill="#f8fafc"/>
   <path class="sign-outline" d="${geometry.signPath}"/>
   <path class="arrow" d="${geometry.arrowFillPath}"/>
-  <line class="divider" x1="${geometry.arrowDividerX}" x2="${geometry.arrowDividerX}" y1="32" y2="218"/>
-  <line class="area-divider" x1="${geometry.iconAreaEndX}" x2="${geometry.iconAreaEndX}" y1="48" y2="202"/>
-  <line class="area-divider" x1="${geometry.targetAreaEndX}" x2="${geometry.targetAreaEndX}" y1="48" y2="202"/>
-  <line class="area-divider" x1="${geometry.distanceAreaStartX}" x2="${geometry.distanceAreaStartX}" y1="48" y2="202"/>
+  <line class="divider" x1="${geometry.arrowDividerX}" x2="${geometry.arrowDividerX}" y1="${geometry.dividerY1}" y2="${geometry.dividerY2}"/>
+  <line class="area-divider" x1="${geometry.iconAreaEndX}" x2="${geometry.iconAreaEndX}" y1="${geometry.guideY1}" y2="${geometry.guideY2}"/>
+  <line class="area-divider" x1="${geometry.targetAreaEndX}" x2="${geometry.targetAreaEndX}" y1="${geometry.guideY1}" y2="${geometry.guideY2}"/>
+  <line class="area-divider" x1="${geometry.distanceAreaStartX}" x2="${geometry.distanceAreaStartX}" y1="${geometry.guideY1}" y2="${geometry.guideY2}"/>
 ${textLines}
 ${routeMarkup}
 </svg>`;
