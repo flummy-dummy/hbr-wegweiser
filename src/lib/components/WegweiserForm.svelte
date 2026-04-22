@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { RouteOption, WegweiserData, WegweiserOption, WegweiserValidation } from '$lib/wegweiser';
+  import type { RouteInsert, RouteOption, WegweiserData, WegweiserOption, WegweiserValidation } from '$lib/wegweiser';
   import {
     formatDistance,
+    getRouteInsertKey,
     pictogramOptions as fallbackPictogramOptions,
     routeOptions as fallbackRouteOptions
   } from '$lib/wegweiser';
@@ -18,11 +19,20 @@
     routeOptions?: WegweiserOption[];
   } = $props();
 
+  type SelectedRouteEntry = {
+    key: string;
+    type: 'themenroute' | 'knotenpunkt';
+    label: string;
+    option?: WegweiserOption;
+    route: RouteInsert;
+  };
+
   let routeSearch = $state('');
   let farTargetPictogramSearch = $state('');
   let farRoutePictogramSearch = $state('');
   let nearTargetPictogramSearch = $state('');
   let nearRoutePictogramSearch = $state('');
+  let knotNumber = $state('');
   const targetPictogramOptions = $derived(
     pictogramOptions.filter((option) => option.value !== 'none' && option.kategorie === 'ziel')
   );
@@ -30,13 +40,31 @@
     pictogramOptions.filter((option) => option.value !== 'none' && option.kategorie === 'strecke')
   );
   const selectedRouteOptions = $derived(
-    data.routes
-      .map((route) => routeOptions.find((option) => option.value === route))
-      .filter((option): option is WegweiserOption => Boolean(option))
+    data.routes.flatMap((route): SelectedRouteEntry[] => {
+        if (route.type === 'knotenpunkt') {
+          return [{
+            key: getRouteInsertKey(route),
+            type: route.type,
+            label: `Knotenpunkt ${route.number}`,
+            route
+          }];
+        }
+
+        const option = routeOptions.find((candidate) => candidate.value === route.route);
+        return option
+          ? [{
+              key: getRouteInsertKey(route),
+              type: route.type,
+              label: option.kurzlabel ?? option.label,
+              option,
+              route
+            }]
+          : [];
+      })
   );
   const filteredRouteOptions = $derived(
     routeOptions
-      .filter((option) => !data.routes.includes(option.value))
+      .filter((option) => !data.routes.some((route) => route.type === 'themenroute' && route.route === option.value))
       .filter((option) => {
         const query = routeSearch.trim().toLowerCase();
 
@@ -102,20 +130,42 @@
   }
 
   function addRoute(route: RouteOption) {
-    if (data.routes.includes(route) || data.routes.length >= 6) {
+    if (
+      data.routes.some((selectedRoute) => selectedRoute.type === 'themenroute' && selectedRoute.route === route) ||
+      data.routes.length >= 6
+    ) {
       return;
     }
 
-    data.routes = [...data.routes, route];
+    data.routes = [...data.routes, { type: 'themenroute', route }];
     routeSearch = '';
   }
 
-  function removeRoute(route: RouteOption) {
-    data.routes = data.routes.filter((selectedRoute) => selectedRoute !== route);
+  function addKnotenpunkt() {
+    const parsed = Number(knotNumber);
+
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 99 || data.routes.length >= 6) {
+      return;
+    }
+
+    data.routes = [...data.routes, { type: 'knotenpunkt', number: parsed }];
+    knotNumber = '';
   }
 
-  function moveRoute(route: RouteOption, direction: -1 | 1) {
-    const index = data.routes.indexOf(route);
+  function isValidKnotenpunktNumber(value: string) {
+    const parsed = Number(value);
+
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 99;
+  }
+
+  function removeRoute(route: RouteInsert) {
+    const key = getRouteInsertKey(route);
+    data.routes = data.routes.filter((selectedRoute) => getRouteInsertKey(selectedRoute) !== key);
+  }
+
+  function moveRoute(route: RouteInsert, direction: -1 | 1) {
+    const key = getRouteInsertKey(route);
+    const index = data.routes.findIndex((selectedRoute) => getRouteInsertKey(selectedRoute) === key);
     const targetIndex = index + direction;
 
     if (index < 0 || targetIndex < 0 || targetIndex >= data.routes.length) {
@@ -287,6 +337,30 @@
       />
     </label>
 
+    <div class="knotenpunkt-adder">
+      <label>
+        <span>Knotenpunkt</span>
+        <input
+          aria-invalid={Boolean(knotNumber) && !isValidKnotenpunktNumber(knotNumber)}
+          bind:value={knotNumber}
+          disabled={data.routes.length >= 6}
+          inputmode="numeric"
+          max="99"
+          min="1"
+          name="knotenpunkt"
+          placeholder="1-99"
+          type="number"
+        />
+      </label>
+      <button
+        disabled={!isValidKnotenpunktNumber(knotNumber) || data.routes.length >= 6}
+        type="button"
+        onclick={addKnotenpunkt}
+      >
+        Knotenpunkt hinzufügen
+      </button>
+    </div>
+
     <div class="route-results" aria-label="Gefundene Themenrouten">
       {#if data.routes.length >= 6}
         <p class="route-empty">Maximal 6 Themenrouten sind ausgewählt.</p>
@@ -313,34 +387,38 @@
 
     <div class="selected-routes" aria-label="Ausgewählte Themenrouten">
       {#if selectedRouteOptions.length}
-        {#each selectedRouteOptions as option, index}
+        {#each selectedRouteOptions as entry, index}
           <div class="selected-route">
             <div class="selected-route-label">
-              {#if option.imageUrl}
-                <img alt="" src={option.imageUrl} />
+              {#if entry.type === 'knotenpunkt'}
+                <span class="selected-knotenpunkt-badge">
+                  <span>{entry.route.type === 'knotenpunkt' ? entry.route.number : ''}</span>
+                </span>
+              {:else if entry.option?.imageUrl}
+                <img alt="" src={entry.option.imageUrl} />
               {:else}
-                <span class="selected-route-placeholder">{option.kurzlabel ?? option.label.slice(0, 2)}</span>
+                <span class="selected-route-placeholder">{entry.option?.kurzlabel ?? entry.label.slice(0, 2)}</span>
               {/if}
-              <span>{option.kurzlabel ?? option.label}</span>
+              <span>{entry.label}</span>
             </div>
             <div class="selected-route-actions">
               <button
-                aria-label={`${option.label} nach oben verschieben`}
+                aria-label={`${entry.label} nach oben verschieben`}
                 disabled={index === 0}
                 type="button"
-                onclick={() => moveRoute(option.value, -1)}
+                onclick={() => moveRoute(entry.route, -1)}
               >
                 ↑
               </button>
               <button
-                aria-label={`${option.label} nach unten verschieben`}
+                aria-label={`${entry.label} nach unten verschieben`}
                 disabled={index === selectedRouteOptions.length - 1}
                 type="button"
-                onclick={() => moveRoute(option.value, 1)}
+                onclick={() => moveRoute(entry.route, 1)}
               >
                 ↓
               </button>
-              <button type="button" onclick={() => removeRoute(option.value)}>Entfernen</button>
+              <button type="button" onclick={() => removeRoute(entry.route)}>Entfernen</button>
             </div>
           </div>
         {/each}

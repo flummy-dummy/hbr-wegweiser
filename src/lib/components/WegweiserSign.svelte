@@ -3,7 +3,7 @@
   import {
     findPictogramOption,
     findRouteOption,
-    formatDistance,
+    getDistanceParts,
     getRouteLabel,
     getRouteFontSize,
     getRouteTextLines,
@@ -25,6 +25,7 @@
   const geometry = $derived(getSignGeometry(data.direction));
   const visibleLines = $derived(getWegweiserRows(data).filter((line) => line.hasDestination));
   const routes = $derived(data.routes.slice(0, 6));
+  const bike = $derived(getBikeGeometry());
 
   function routeX(index: number) {
     const step = index * (geometry.routeSize + geometry.routeGap);
@@ -64,6 +65,35 @@
       geometry.lineIconGap
     );
   }
+
+  function getBikeGeometry() {
+    const centerX = geometry.bikeCenterX;
+    const centerY = geometry.bikeCenterY;
+    const rearX = centerX - 38;
+    const frontX = centerX + 38;
+    const wheelY = centerY + 15;
+    const wheelRadius = 14;
+    const crankX = centerX - 2;
+    const crankY = centerY + 13;
+    const seatX = centerX - 17;
+    const seatY = centerY - 13;
+    const handleX = centerX + 23;
+    const handleY = centerY - 13;
+
+    return {
+      rearX,
+      frontX,
+      wheelY,
+      wheelRadius,
+      crankX,
+      crankY,
+      seatX,
+      seatY,
+      handleX,
+      handleY
+    };
+  }
+
 </script>
 
 <svg
@@ -78,13 +108,8 @@
     und Richtung {data.direction === 'right' ? 'rechts' : 'links'}.
   </desc>
   <rect width={wegweiserLayout.ansichtBreite} height={wegweiserLayout.ansichtHoehe} fill="#f8fafc" />
-  <path
-    d={geometry.signPath}
-    fill="#ffffff"
-    stroke="#d7001f"
-    stroke-linejoin="round"
-    stroke-width="4"
-  />
+  <path d={geometry.signPath} fill="#d7001f" />
+  <path d={geometry.innerPath} fill="#ffffff" />
   <path d={geometry.arrowFillPath} fill="#d7001f" />
   <line
     x1={geometry.arrowDividerX}
@@ -124,7 +149,16 @@
     stroke-width="3"
     opacity="0.6"
   />
-
+  <g class="svg-bike-symbol">
+    <circle cx={bike.rearX} cy={bike.wheelY} r={bike.wheelRadius} />
+    <circle cx={bike.frontX} cy={bike.wheelY} r={bike.wheelRadius} />
+    <path
+      d={`M${bike.rearX} ${bike.wheelY}L${bike.crankX} ${bike.crankY}L${bike.seatX} ${bike.seatY}L${geometry.bikeCenterX + 10} ${bike.seatY}L${bike.frontX} ${bike.wheelY}L${bike.crankX} ${bike.crankY}L${bike.handleX} ${bike.handleY}`}
+    />
+    <path d={`M${bike.seatX - 8} ${bike.seatY}H${bike.seatX + 5}`} />
+    <path d={`M${bike.handleX} ${bike.handleY}h15m-8 -8l8 8`} />
+    <path d={`M${bike.crankX - 6} ${bike.crankY + 6}l12 -12`} />
+  </g>
   {#each visibleLines as line}
     {@const y = line.y}
     {@const targetTextX = line.pictograms.length ? geometry.contentStartX : geometry.textStartX}
@@ -201,37 +235,54 @@
         {/if}
       </g>
     {/each}
+    {@const distance = getDistanceParts(line.distance)}
     <text
       x={geometry.distanceEndX}
       y={y}
       fill="#d7001f"
       font-family="Arial, Helvetica, sans-serif"
-      font-size={wegweiserLayout.textSchriftGroesse}
+      font-size={wegweiserLayout.entfernungGanzzahlSchriftGroesse}
       font-weight="500"
       dominant-baseline="middle"
       text-anchor="end"
     >
-      {formatDistance(line.distance)}
+      {#if distance.decimal}
+        <tspan>{distance.integer},</tspan><tspan font-size={wegweiserLayout.entfernungNachkommaSchriftGroesse}
+          >{distance.decimal}</tspan
+        >
+      {:else}
+        <tspan>{distance.integer}</tspan>
+      {/if}
     </text>
   {/each}
 
   {#if routes.length}
     {#each routes as route, index}
       {@const x = routeX(index)}
-      {@const routeOption = findRouteOption(route, routeOptions)}
-      {@const label = routeOption?.kurzlabel ?? routeOption?.label ?? getRouteLabel(route)}
+      {@const routeOption = route.type === 'themenroute' ? findRouteOption(route.route, routeOptions) : undefined}
+      {@const label = route.type === 'themenroute' ? (routeOption?.kurzlabel ?? routeOption?.label ?? getRouteLabel(route.route)) : `Knotenpunkt ${route.number}`}
       {@const labelLines = getRouteTextLines(label)}
       {@const fontSize = getRouteFontSize(label)}
       {@const lineHeight = fontSize + 2}
-      <g class="svg-route-item">
+      <g class:svg-knotenpunkt-item={route.type === 'knotenpunkt'} class="svg-route-item">
         <rect
           x={x}
           y={geometry.routeY}
           width={geometry.routeSize}
           height={geometry.routeSize}
-          rx="2"
+          rx={route.type === 'knotenpunkt' ? 0 : 2}
         />
-        {#if routeOption?.imageUrl}
+        {#if route.type === 'knotenpunkt'}
+          <circle
+            class="svg-knotenpunkt-circle"
+            cx={x + geometry.routeSize / 2}
+            cy={geometry.routeY + geometry.routeSize / 2}
+            r={geometry.routeSize * 0.38}
+          />
+          <text class="svg-knotenpunkt-text" x={x + geometry.routeSize / 2} y={geometry.routeY + geometry.routeSize / 2 + 1}>
+            {route.number}
+          </text>
+        {:else if routeOption?.imageUrl}
           <image
             href={routeOption.imageUrl}
             x={x + 6}

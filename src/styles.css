@@ -273,6 +273,30 @@ p {
   gap: 8px;
 }
 
+.knotenpunkt-adder {
+  display: grid;
+  grid-template-columns: minmax(96px, 140px) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.knotenpunkt-adder button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid #b8c2d2;
+  border-radius: 6px;
+  background: #fff;
+  color: #18212f;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.knotenpunkt-adder button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .route-results,
 .selected-routes {
   display: grid;
@@ -330,6 +354,28 @@ p {
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.selected-knotenpunkt-badge {
+  display: inline-grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 4px;
+  background: #d7001f;
+  color: #fff;
+  font-weight: 900;
+}
+
+.selected-knotenpunkt-badge span {
+  display: inline-grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  line-height: 1;
 }
 
 .route-result strong,
@@ -503,8 +549,16 @@ p {
 .svg-preview svg {
   width: min(100%, 1000px);
   height: auto;
-  aspect-ratio: 1000 / 330;
+  aspect-ratio: 1000 / 340;
   box-shadow: 0 18px 40px rgb(15 23 42 / 12%);
+}
+
+.svg-bike-symbol {
+  fill: none;
+  stroke: #d7001f;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
 }
 
 .svg-pictogram rect {
@@ -541,6 +595,31 @@ p {
   stroke-width: 2;
 }
 
+.svg-knotenpunkt-item rect {
+  fill: #d7001f;
+  stroke: #d7001f;
+  stroke-width: 0;
+}
+
+.svg-knotenpunkt-circle {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+}
+
+.svg-knotenpunkt-text {
+  fill: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 31px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.svg-route-item .svg-knotenpunkt-text {
+  fill: #fff;
+}
+
 .svg-route-item text {
   fill: #1f2a44;
   font-family: Arial, Helvetica, sans-serif;
@@ -567,7 +646,8 @@ p {
   .form-row,
   .form-row.with-pictogram,
   .destination-line-main,
-  .pictogram-picker-row {
+  .pictogram-picker-row,
+  .knotenpunkt-adder {
     grid-template-columns: 1fr;
   }
 

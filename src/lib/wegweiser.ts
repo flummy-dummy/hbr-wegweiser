@@ -1,6 +1,15 @@
 export type Direction = 'left' | 'right';
 export type DestinationPictogram = 'none' | string;
 export type RouteOption = string;
+export type RouteInsert =
+  | {
+      type: 'themenroute';
+      route: RouteOption;
+    }
+  | {
+      type: 'knotenpunkt';
+      number: number;
+    };
 export type SelectOption = {
   value: string;
   label: string;
@@ -26,7 +35,7 @@ export type WegweiserData = {
   nearPictograms: DestinationPictogram[];
   nearRoutePictograms: DestinationPictogram[];
   direction: Direction;
-  routes: RouteOption[];
+  routes: RouteInsert[];
 };
 
 export type WegweiserLine = {
@@ -50,30 +59,40 @@ export type WegweiserValidation = {
 
 export const wegweiserLayout = {
   ansichtBreite: 1000,
-  ansichtHoehe: 330,
-  schildBreite: 936,
-  schildHoehe: 194,
-  schildLinks: 36,
-  schildOben: 28,
+  ansichtHoehe: 340,
+  schildBreite: 1000,
+  schildHoehe: 250,
+  schildLinks: 0,
+  schildOben: 0,
   schildMitteY: 125,
-  pfeilBreite: 100,
-  piktogrammSpalteBreite: 104,
-  textBereichBreite: 472,
-  entfernungBereichBreite: 160,
-  innenabstand: 40,
+  pfeilFahrradBereichBreite: 200,
+  zielBereichBreite: 650,
+  kilometerBereichBreite: 150,
+  isoPfeilBreite: 100,
+  isoPfeilHoehe: 100,
+  fahrradBreite: 103,
+  fahrradHoehe: 63,
+  vollfarbRandBreite: 15,
+  eckRadius: 20,
+  piktogrammSpalteBreite: 134,
+  innenabstand: 37,
+  schriftRandAbstand: 27,
   spaltenAbstand: 20,
-  piktogrammGroesse: 56,
-  zeilenPiktogrammGroesse: 44,
+  piktogrammGroesse: 63,
+  zeilenPiktogrammGroesse: 63,
   zeilenPiktogrammAbstand: 8,
-  textSchriftGroesse: 58,
+  textSchriftGroesse: 63,
+  entfernungGanzzahlSchriftGroesse: 63,
+  entfernungNachkommaSchriftGroesse: 45,
+  zeilenAbstand: 40,
   linienY: {
-    oben: 88,
-    unten: 162,
+    oben: 74,
+    unten: 177,
     einzeln: 125
   },
   einschubQuadratGroesse: 74,
   einschubAbstand: 8,
-  einschubY: 238,
+  einschubY: 258,
   einschubSchriftGroesse: 11,
   einschubKleineSchriftGroesse: 9
 } as const;
@@ -104,7 +123,10 @@ export const defaultWegweiserData: WegweiserData = {
   nearPictograms: [],
   nearRoutePictograms: [],
   direction: 'right',
-  routes: ['castle-route', 'radbahn']
+  routes: [
+    { type: 'themenroute', route: 'castle-route' },
+    { type: 'themenroute', route: 'radbahn' }
+  ]
 };
 
 export function parseDistance(value: string): number | null {
@@ -130,8 +152,19 @@ export function formatDistance(value: string): string {
   return Math.round(parsed).toString();
 }
 
+export function getDistanceParts(value: string): { integer: string; decimal?: string } {
+  const formatted = formatDistance(value);
+  const [integer, decimal] = formatted.split(',');
+
+  return { integer, decimal };
+}
+
 export function getRouteLabel(route: RouteOption): string {
   return routeOptions.find((option) => option.value === route)?.label ?? route;
+}
+
+export function getRouteInsertKey(route: RouteInsert): string {
+  return route.type === 'themenroute' ? `themenroute:${route.route}` : `knotenpunkt:${route.number}`;
 }
 
 export function findPictogramOption(
@@ -245,26 +278,47 @@ export function getSignGeometry(direction: Direction) {
   const layout = wegweiserLayout;
   const signRight = layout.schildLinks + layout.schildBreite;
   const signBottom = layout.schildOben + layout.schildHoehe;
-  const rightArrowBaseX = signRight - layout.pfeilBreite;
-  const leftArrowBaseX = layout.schildLinks + layout.pfeilBreite;
-  const bodyStartX = isRight ? layout.schildLinks : leftArrowBaseX;
-  const bodyEndX = isRight ? rightArrowBaseX : signRight;
-  const textStartX = bodyStartX + layout.innenabstand;
+  const arrowAreaStartX = isRight ? signRight - layout.pfeilFahrradBereichBreite : layout.schildLinks;
+  const arrowBaseX = isRight
+    ? signRight - layout.isoPfeilBreite
+    : layout.schildLinks + layout.isoPfeilBreite;
+  const targetAreaStartX = isRight
+    ? layout.schildLinks
+    : layout.schildLinks + layout.pfeilFahrradBereichBreite;
+  const kilometerAreaStartX = isRight
+    ? targetAreaStartX + layout.zielBereichBreite
+    : targetAreaStartX + layout.zielBereichBreite;
+  const textStartX = targetAreaStartX + layout.innenabstand;
   const contentStartX = textStartX + layout.piktogrammSpalteBreite;
-  const targetAreaEndX = contentStartX + layout.textBereichBreite;
-  const distanceAreaStartX = targetAreaEndX + layout.spaltenAbstand;
-  const distanceEndX = distanceAreaStartX + layout.entfernungBereichBreite;
-  const iconAreaEndX = bodyStartX + layout.innenabstand + layout.piktogrammSpalteBreite - layout.spaltenAbstand;
+  const targetAreaEndX = targetAreaStartX + layout.zielBereichBreite;
+  const distanceAreaStartX = kilometerAreaStartX;
+  const distanceEndX = kilometerAreaStartX + layout.kilometerBereichBreite - layout.schriftRandAbstand;
+  const iconAreaEndX = textStartX + layout.piktogrammSpalteBreite - layout.spaltenAbstand;
+  const arrowTipX = isRight ? signRight : layout.schildLinks;
+  const bikeCenterX = isRight
+    ? arrowAreaStartX + (layout.pfeilFahrradBereichBreite - layout.isoPfeilBreite) / 2
+    : arrowAreaStartX + layout.isoPfeilBreite + (layout.pfeilFahrradBereichBreite - layout.isoPfeilBreite) / 2;
+  const bikeCenterY = layout.schildMitteY + 5;
+  const border = layout.vollfarbRandBreite;
+  const radius = layout.eckRadius;
+  const innerTop = layout.schildOben + border;
+  const innerBottom = signBottom - border;
+  const innerLeft = layout.schildLinks + border;
+  const innerRight = signRight - border;
+  const innerArrowBaseX = isRight ? arrowBaseX - border : arrowBaseX + border;
 
   return {
     signPath: isRight
-      ? `M${layout.schildLinks} ${layout.schildOben}H${rightArrowBaseX}L${signRight} ${layout.schildMitteY}L${rightArrowBaseX} ${signBottom}H${layout.schildLinks}Z`
-      : `M${signRight} ${layout.schildOben}H${leftArrowBaseX}L${layout.schildLinks - 8} ${layout.schildMitteY}L${leftArrowBaseX} ${signBottom}H${signRight}Z`,
+      ? `M${layout.schildLinks + radius} ${layout.schildOben}H${arrowBaseX}L${signRight} ${layout.schildMitteY}L${arrowBaseX} ${signBottom}H${layout.schildLinks + radius}Q${layout.schildLinks} ${signBottom} ${layout.schildLinks} ${signBottom - radius}V${layout.schildOben + radius}Q${layout.schildLinks} ${layout.schildOben} ${layout.schildLinks + radius} ${layout.schildOben}Z`
+      : `M${signRight - radius} ${layout.schildOben}H${arrowBaseX}L${layout.schildLinks} ${layout.schildMitteY}L${arrowBaseX} ${signBottom}H${signRight - radius}Q${signRight} ${signBottom} ${signRight} ${signBottom - radius}V${layout.schildOben + radius}Q${signRight} ${layout.schildOben} ${signRight - radius} ${layout.schildOben}Z`,
+    innerPath: isRight
+      ? `M${innerLeft + radius} ${innerTop}H${innerArrowBaseX}L${innerRight} ${layout.schildMitteY}L${innerArrowBaseX} ${innerBottom}H${innerLeft + radius}Q${innerLeft} ${innerBottom} ${innerLeft} ${innerBottom - radius}V${innerTop + radius}Q${innerLeft} ${innerTop} ${innerLeft + radius} ${innerTop}Z`
+      : `M${innerRight - radius} ${innerTop}H${innerArrowBaseX}L${innerLeft} ${layout.schildMitteY}L${innerArrowBaseX} ${innerBottom}H${innerRight - radius}Q${innerRight} ${innerBottom} ${innerRight} ${innerBottom - radius}V${innerTop + radius}Q${innerRight} ${innerTop} ${innerRight - radius} ${innerTop}Z`,
     arrowFillPath: isRight
-      ? `M${rightArrowBaseX} ${layout.schildOben}L${signRight} ${layout.schildMitteY}L${rightArrowBaseX} ${signBottom}Z`
-      : `M${leftArrowBaseX} ${layout.schildOben}L${layout.schildLinks - 8} ${layout.schildMitteY}L${leftArrowBaseX} ${signBottom}Z`,
-    arrowDividerX: isRight ? rightArrowBaseX : leftArrowBaseX,
-    iconX: bodyStartX + layout.innenabstand,
+      ? `M${arrowBaseX} ${layout.schildOben}L${signRight} ${layout.schildMitteY}L${arrowBaseX} ${signBottom}Z`
+      : `M${arrowBaseX} ${layout.schildOben}L${layout.schildLinks} ${layout.schildMitteY}L${arrowBaseX} ${signBottom}Z`,
+    arrowDividerX: arrowBaseX,
+    iconX: textStartX,
     iconSize: layout.piktogrammGroesse,
     lineIconSize: layout.zeilenPiktogrammGroesse,
     lineIconGap: layout.zeilenPiktogrammAbstand,
@@ -274,17 +328,21 @@ export function getSignGeometry(direction: Direction) {
     iconAreaEndX,
     targetAreaEndX,
     distanceAreaStartX,
-    routeAnchorX: isRight ? rightArrowBaseX : leftArrowBaseX,
+    bikeCenterX,
+    bikeCenterY,
+    bikeWidth: layout.fahrradBreite,
+    bikeHeight: layout.fahrradHoehe,
+    routeAnchorX: isRight ? arrowBaseX : arrowBaseX,
     routeDirection: isRight ? -1 : 1,
     routeSize: layout.einschubQuadratGroesse,
     routeGap: layout.einschubAbstand,
     routeY: layout.einschubY,
-    guideY1: layout.schildOben + 20,
-    guideY2: signBottom - 20,
-    dividerY1: layout.schildOben + 4,
-    dividerY2: signBottom - 4,
-    targetTextWidth: layout.textBereichBreite,
-    distanceTextWidth: layout.entfernungBereichBreite
+    guideY1: layout.schildOben + layout.vollfarbRandBreite + 10,
+    guideY2: signBottom - layout.vollfarbRandBreite - 10,
+    dividerY1: layout.schildOben + layout.vollfarbRandBreite,
+    dividerY2: signBottom - layout.vollfarbRandBreite,
+    targetTextWidth: layout.zielBereichBreite,
+    distanceTextWidth: layout.kilometerBereichBreite
   };
 }
 
@@ -364,6 +422,38 @@ function getLinePictogramsMarkup(
     .join('\n');
 }
 
+function getBikeMarkup(centerX: number, centerY: number): string {
+  const rearX = centerX - 38;
+  const frontX = centerX + 38;
+  const wheelY = centerY + 15;
+  const wheelRadius = 14;
+  const crankX = centerX - 2;
+  const crankY = centerY + 13;
+  const seatX = centerX - 17;
+  const seatY = centerY - 13;
+  const handleX = centerX + 23;
+  const handleY = centerY - 13;
+
+  return `<g class="bike-symbol">
+    <circle cx="${rearX}" cy="${wheelY}" r="${wheelRadius}"/>
+    <circle cx="${frontX}" cy="${wheelY}" r="${wheelRadius}"/>
+    <path d="M${rearX} ${wheelY}L${crankX} ${crankY}L${seatX} ${seatY}L${centerX + 10} ${seatY}L${frontX} ${wheelY}L${crankX} ${crankY}L${handleX} ${handleY}"/>
+    <path d="M${seatX - 8} ${seatY}H${seatX + 5}"/>
+    <path d="M${handleX} ${handleY}h15m-8 -8l8 8"/>
+    <path d="M${crankX - 6} ${crankY + 6}l12 -12"/>
+  </g>`;
+}
+
+function getDistanceMarkup(value: string, x: number, y: number): string {
+  const parts = getDistanceParts(value);
+
+  if (!parts.decimal) {
+    return `<text x="${x}" y="${y}" class="distance-text"><tspan>${escapeSvgText(parts.integer)}</tspan></text>`;
+  }
+
+  return `<text x="${x}" y="${y}" class="distance-text"><tspan>${escapeSvgText(parts.integer)},</tspan><tspan class="distance-decimal">${escapeSvgText(parts.decimal)}</tspan></text>`;
+}
+
 export function getRouteTextLines(label: string): string[] {
   const words = label.trim().split(/\s+/).filter(Boolean);
   if (!words.length) {
@@ -411,8 +501,16 @@ function getRouteMarkup(data: WegweiserData, options: WegweiserOption[] = routeO
       const x = geometry.routeDirection === -1
         ? geometry.routeAnchorX - geometry.routeSize - step
         : geometry.routeAnchorX + step;
-      const option = findRouteOption(route, options);
-      const label = option?.kurzlabel ?? option?.label ?? getRouteLabel(route);
+      if (route.type === 'knotenpunkt') {
+        return `<g class="route-item knotenpunkt-item">
+    <rect x="${x}" y="${geometry.routeY}" width="${geometry.routeSize}" height="${geometry.routeSize}" rx="0"/>
+    <circle cx="${x + geometry.routeSize / 2}" cy="${geometry.routeY + geometry.routeSize / 2}" r="${geometry.routeSize * 0.38}"/>
+    <text class="knotenpunkt-text" x="${x + geometry.routeSize / 2}" y="${geometry.routeY + geometry.routeSize / 2 + 1}">${route.number}</text>
+  </g>`;
+      }
+
+      const option = findRouteOption(route.route, options);
+      const label = option?.kurzlabel ?? option?.label ?? getRouteLabel(route.route);
       const imagePadding = 6;
       if (option?.imageUrl) {
         return `<g class="route-item">
@@ -455,31 +553,36 @@ export function buildWegweiserSvg(data: WegweiserData, assets?: WegweiserAssets)
       return `${getLinePictogramsMarkup(line.pictograms, assets?.pictogramOptions, geometry.iconX, y)}
   <text x="${targetTextX}" y="${y}" class="target-text">${escapeSvgText(line.destination)}</text>
   ${getLinePictogramsMarkup(line.routePictograms, assets?.pictogramOptions, routePictogramStartX, y)}
-  <text x="${geometry.distanceEndX}" y="${y}" class="distance-text">${escapeSvgText(formatDistance(line.distance))}</text>`;
+  ${getDistanceMarkup(line.distance, geometry.distanceEndX, y)}`;
     })
     .join('\n');
   const routeMarkup = getRouteMarkup(data, assets?.routeOptions);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 330" role="img" aria-labelledby="sign-title sign-description">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${wegweiserLayout.ansichtBreite} ${wegweiserLayout.ansichtHoehe}" role="img" aria-labelledby="sign-title sign-description">
   <title id="sign-title">HBR-Pfeilwegweiser</title>
   <desc id="sign-description">Pfeilwegweiser ${data.direction === 'right' ? 'rechtsweisend' : 'linksweisend'}</desc>
   <style>
-    .sign-outline{fill:#fff;stroke:#d7001f;stroke-width:4;stroke-linejoin:round}
+    .sign-outline{fill:#d7001f}
+    .sign-inner{fill:#fff}
     .arrow{fill:#d7001f}
     .divider{stroke:#d7001f;stroke-width:3}
     .area-divider{stroke:#c8c8c8;stroke-width:3;stroke-dasharray:10 8;opacity:.6}
+    .bike-symbol{fill:none;stroke:#d7001f;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
     .target-text,.distance-text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:${wegweiserLayout.textSchriftGroesse}px;font-weight:500;dominant-baseline:middle}
     .distance-text{text-anchor:end}
+    .distance-decimal{font-size:${wegweiserLayout.entfernungNachkommaSchriftGroesse}px}
     .pictogram rect{fill:#fff;stroke:#d7001f;stroke-width:2}.pictogram text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;text-anchor:middle;dominant-baseline:middle}.picto-line{fill:none;stroke:#d7001f;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}
+    .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}.knotenpunkt-item rect{fill:#d7001f;stroke:#d7001f;stroke-width:0}.knotenpunkt-item circle{fill:none;stroke:#fff;stroke-width:3}.route-item .knotenpunkt-text{fill:#fff;font-size:31px;font-weight:700;text-anchor:middle;dominant-baseline:middle}
   </style>
   <rect width="${wegweiserLayout.ansichtBreite}" height="${wegweiserLayout.ansichtHoehe}" fill="#f8fafc"/>
   <path class="sign-outline" d="${geometry.signPath}"/>
+  <path class="sign-inner" d="${geometry.innerPath}"/>
   <path class="arrow" d="${geometry.arrowFillPath}"/>
   <line class="divider" x1="${geometry.arrowDividerX}" x2="${geometry.arrowDividerX}" y1="${geometry.dividerY1}" y2="${geometry.dividerY2}"/>
   <line class="area-divider" x1="${geometry.iconAreaEndX}" x2="${geometry.iconAreaEndX}" y1="${geometry.guideY1}" y2="${geometry.guideY2}"/>
   <line class="area-divider" x1="${geometry.targetAreaEndX}" x2="${geometry.targetAreaEndX}" y1="${geometry.guideY1}" y2="${geometry.guideY2}"/>
   <line class="area-divider" x1="${geometry.distanceAreaStartX}" x2="${geometry.distanceAreaStartX}" y1="${geometry.guideY1}" y2="${geometry.guideY2}"/>
+  ${getBikeMarkup(geometry.bikeCenterX, geometry.bikeCenterY)}
 ${textLines}
 ${routeMarkup}
 </svg>`;

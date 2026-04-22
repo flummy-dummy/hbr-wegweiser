@@ -20,7 +20,10 @@
       farRoutePictograms: [],
       nearPictograms: [],
       nearRoutePictograms: [],
-      routes: data.routeOptions.slice(0, 2).map((option) => option.value)
+      routes: data.routeOptions.slice(0, 2).map((option) => ({
+        type: 'themenroute',
+        route: option.value
+      }))
     };
   }
 
