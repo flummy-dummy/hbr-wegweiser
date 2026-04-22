@@ -1,20 +1,30 @@
 export type Direction = 'left' | 'right';
-export type DestinationPictogram = 'none' | 'station' | 'center' | 'ferry';
-export type RouteOption =
-  | 'castle-route'
-  | 'radbahn'
-  | 'theme-route'
-  | 'water-route'
-  | 'heritage-route'
-  | 'park-route';
+export type DestinationPictogram = 'none' | string;
+export type RouteOption = string;
+export type SelectOption = {
+  value: string;
+  label: string;
+};
+export type WegweiserOption = SelectOption & {
+  slug?: string;
+  kurzlabel?: string;
+  kategorie?: string;
+  imageUrl?: string;
+};
+export type WegweiserAssets = {
+  pictogramOptions: WegweiserOption[];
+  routeOptions: WegweiserOption[];
+};
 
 export type WegweiserData = {
   farDestination: string;
   farDistance: string;
-  farPictogram: DestinationPictogram;
+  farPictograms: DestinationPictogram[];
+  farRoutePictograms: DestinationPictogram[];
   nearDestination: string;
   nearDistance: string;
-  nearPictogram: DestinationPictogram;
+  nearPictograms: DestinationPictogram[];
+  nearRoutePictograms: DestinationPictogram[];
   direction: Direction;
   routes: RouteOption[];
 };
@@ -22,7 +32,8 @@ export type WegweiserData = {
 export type WegweiserLine = {
   destination: string;
   distance: string;
-  pictogram: DestinationPictogram;
+  pictograms: DestinationPictogram[];
+  routePictograms: DestinationPictogram[];
 };
 
 export type WegweiserRow = WegweiserLine & {
@@ -46,12 +57,14 @@ export const wegweiserLayout = {
   schildOben: 28,
   schildMitteY: 125,
   pfeilBreite: 100,
-  piktogrammSpalteBreite: 82,
-  textBereichBreite: 494,
+  piktogrammSpalteBreite: 104,
+  textBereichBreite: 472,
   entfernungBereichBreite: 160,
   innenabstand: 40,
   spaltenAbstand: 20,
   piktogrammGroesse: 56,
+  zeilenPiktogrammGroesse: 44,
+  zeilenPiktogrammAbstand: 8,
   textSchriftGroesse: 58,
   linienY: {
     oben: 88,
@@ -65,14 +78,14 @@ export const wegweiserLayout = {
   einschubKleineSchriftGroesse: 9
 } as const;
 
-export const pictogramOptions: Array<{ value: DestinationPictogram; label: string }> = [
+export const pictogramOptions: WegweiserOption[] = [
   { value: 'none', label: 'kein Piktogramm' },
-  { value: 'station', label: 'Bahnhof' },
-  { value: 'center', label: 'Zentrum' },
-  { value: 'ferry', label: 'Fähre' }
+  { value: 'station', label: 'Bahnhof', kategorie: 'ziel' },
+  { value: 'center', label: 'Zentrum', kategorie: 'ziel' },
+  { value: 'ferry', label: 'Fähre', kategorie: 'ziel' }
 ];
 
-export const routeOptions: Array<{ value: RouteOption; label: string }> = [
+export const routeOptions: WegweiserOption[] = [
   { value: 'castle-route', label: '100 Schlösser Route' },
   { value: 'radbahn', label: 'Radbahn' },
   { value: 'theme-route', label: 'Themenroute' },
@@ -84,10 +97,12 @@ export const routeOptions: Array<{ value: RouteOption; label: string }> = [
 export const defaultWegweiserData: WegweiserData = {
   farDestination: 'Zentrum',
   farDistance: '1,0',
-  farPictogram: 'center',
+  farPictograms: [],
+  farRoutePictograms: [],
   nearDestination: 'Bahnhof',
   nearDistance: '5,6',
-  nearPictogram: 'station',
+  nearPictograms: [],
+  nearRoutePictograms: [],
   direction: 'right',
   routes: ['castle-route', 'radbahn']
 };
@@ -119,17 +134,33 @@ export function getRouteLabel(route: RouteOption): string {
   return routeOptions.find((option) => option.value === route)?.label ?? route;
 }
 
+export function findPictogramOption(
+  pictogram: DestinationPictogram,
+  options: WegweiserOption[] = pictogramOptions
+): WegweiserOption | undefined {
+  return options.find((option) => option.value === pictogram);
+}
+
+export function findRouteOption(
+  route: RouteOption,
+  options: WegweiserOption[] = routeOptions
+): WegweiserOption | undefined {
+  return options.find((option) => option.value === route);
+}
+
 export function getVisibleLines(data: WegweiserData): WegweiserLine[] {
   return [
     {
       destination: data.farDestination.trim(),
       distance: data.farDistance.trim(),
-      pictogram: data.farPictogram
+      pictograms: data.farPictograms.slice(0, 2),
+      routePictograms: data.farRoutePictograms.slice(0, 2)
     },
     {
       destination: data.nearDestination.trim(),
       distance: data.nearDistance.trim(),
-      pictogram: data.nearPictogram
+      pictograms: data.nearPictograms.slice(0, 2),
+      routePictograms: data.nearRoutePictograms.slice(0, 2)
     }
   ].filter((line) => line.destination || line.distance);
 }
@@ -140,7 +171,8 @@ export function getWegweiserRows(data: WegweiserData): WegweiserRow[] {
       key: 'far',
       destination: data.farDestination.trim(),
       distance: data.farDistance.trim(),
-      pictogram: data.farPictogram,
+      pictograms: data.farPictograms.slice(0, 2),
+      routePictograms: data.farRoutePictograms.slice(0, 2),
       y: wegweiserLayout.linienY.oben,
       hasDestination: Boolean(data.farDestination.trim())
     },
@@ -148,7 +180,8 @@ export function getWegweiserRows(data: WegweiserData): WegweiserRow[] {
       key: 'near',
       destination: data.nearDestination.trim(),
       distance: data.nearDistance.trim(),
-      pictogram: data.nearPictogram,
+      pictograms: data.nearPictograms.slice(0, 2),
+      routePictograms: data.nearRoutePictograms.slice(0, 2),
       y: wegweiserLayout.linienY.unten,
       hasDestination: Boolean(data.nearDestination.trim())
     }
@@ -203,6 +236,10 @@ function escapeSvgText(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
+function escapeSvgAttribute(value: string): string {
+  return escapeSvgText(value).replaceAll("'", '&apos;');
+}
+
 export function getSignGeometry(direction: Direction) {
   const isRight = direction === 'right';
   const layout = wegweiserLayout;
@@ -212,7 +249,8 @@ export function getSignGeometry(direction: Direction) {
   const leftArrowBaseX = layout.schildLinks + layout.pfeilBreite;
   const bodyStartX = isRight ? layout.schildLinks : leftArrowBaseX;
   const bodyEndX = isRight ? rightArrowBaseX : signRight;
-  const contentStartX = bodyStartX + layout.innenabstand + layout.piktogrammSpalteBreite;
+  const textStartX = bodyStartX + layout.innenabstand;
+  const contentStartX = textStartX + layout.piktogrammSpalteBreite;
   const targetAreaEndX = contentStartX + layout.textBereichBreite;
   const distanceAreaStartX = targetAreaEndX + layout.spaltenAbstand;
   const distanceEndX = distanceAreaStartX + layout.entfernungBereichBreite;
@@ -228,6 +266,9 @@ export function getSignGeometry(direction: Direction) {
     arrowDividerX: isRight ? rightArrowBaseX : leftArrowBaseX,
     iconX: bodyStartX + layout.innenabstand,
     iconSize: layout.piktogrammGroesse,
+    lineIconSize: layout.zeilenPiktogrammGroesse,
+    lineIconGap: layout.zeilenPiktogrammAbstand,
+    textStartX,
     contentStartX,
     distanceEndX,
     iconAreaEndX,
@@ -259,7 +300,8 @@ function getPictogramMarkup(
   pictogram: DestinationPictogram,
   x: number,
   y: number,
-  size: number
+  size: number,
+  option?: WegweiserOption
 ): string {
   if (pictogram === 'none') {
     return '';
@@ -268,18 +310,58 @@ function getPictogramMarkup(
   const iconY = y - size / 2;
   const centerX = x + size / 2;
   const centerY = y;
-  const label = pictogram === 'station' ? 'Bf' : pictogram === 'center' ? 'Z' : 'F';
+  const imagePadding = 6;
+  if (option?.imageUrl) {
+    return `<g class="pictogram">
+    <rect x="${x}" y="${iconY}" width="${size}" height="${size}" rx="3"/>
+    <image href="${escapeSvgAttribute(option.imageUrl)}" x="${x + imagePadding}" y="${iconY + imagePadding}" width="${size - imagePadding * 2}" height="${size - imagePadding * 2}" preserveAspectRatio="xMidYMid meet"/>
+  </g>`;
+  }
+
+  const label =
+    pictogram === 'station'
+      ? 'Bf'
+      : pictogram === 'center'
+        ? 'Z'
+        : pictogram === 'ferry'
+          ? 'F'
+          : option?.kurzlabel ?? option?.label.slice(0, 3) ?? '';
   const extra = pictogram === 'ferry'
     ? `<path class="picto-line" d="M${x + 10} ${centerY + 12}h36l-7 9H${x + 17}z"/>`
     : pictogram === 'station'
       ? `<path class="picto-line" d="M${x + 11} ${centerY + 13}h34M${x + 17} ${centerY + 19}h22"/>`
-      : `<circle class="picto-line" cx="${centerX}" cy="${centerY}" r="13"/>`;
+      : pictogram === 'center'
+        ? `<circle class="picto-line" cx="${centerX}" cy="${centerY}" r="13"/>`
+        : '';
 
   return `<g class="pictogram">
     <rect x="${x}" y="${iconY}" width="${size}" height="${size}" rx="3"/>
-    <text x="${centerX}" y="${centerY}">${label}</text>
+    <text x="${centerX}" y="${centerY}">${escapeSvgText(label)}</text>
     ${extra}
   </g>`;
+}
+
+function getLinePictogramsMarkup(
+  pictograms: DestinationPictogram[],
+  options: WegweiserOption[] | undefined,
+  x: number,
+  y: number
+): string {
+  const size = wegweiserLayout.zeilenPiktogrammGroesse;
+  const gap = wegweiserLayout.zeilenPiktogrammAbstand;
+
+  return pictograms
+    .slice(0, 2)
+    .map((pictogram, index) =>
+      getPictogramMarkup(
+        pictogram,
+        x + index * (size + gap),
+        y,
+        size,
+        findPictogramOption(pictogram, options)
+      )
+    )
+    .join('\n');
 }
 
 export function getRouteTextLines(label: string): string[] {
@@ -316,7 +398,7 @@ export function getRouteFontSize(label: string): number {
   return longestLine > 11 ? wegweiserLayout.einschubKleineSchriftGroesse : wegweiserLayout.einschubSchriftGroesse;
 }
 
-function getRouteMarkup(data: WegweiserData): string {
+function getRouteMarkup(data: WegweiserData, options: WegweiserOption[] = routeOptions): string {
   const geometry = getSignGeometry(data.direction);
   const routes = data.routes.slice(0, 6);
   if (!routes.length) {
@@ -329,7 +411,15 @@ function getRouteMarkup(data: WegweiserData): string {
       const x = geometry.routeDirection === -1
         ? geometry.routeAnchorX - geometry.routeSize - step
         : geometry.routeAnchorX + step;
-      const label = getRouteLabel(route);
+      const option = findRouteOption(route, options);
+      const label = option?.kurzlabel ?? option?.label ?? getRouteLabel(route);
+      const imagePadding = 6;
+      if (option?.imageUrl) {
+        return `<g class="route-item">
+    <rect x="${x}" y="${geometry.routeY}" width="${geometry.routeSize}" height="${geometry.routeSize}" rx="2"/>
+    <image href="${escapeSvgAttribute(option.imageUrl)}" x="${x + imagePadding}" y="${geometry.routeY + imagePadding}" width="${geometry.routeSize - imagePadding * 2}" height="${geometry.routeSize - imagePadding * 2}" preserveAspectRatio="xMidYMid meet"/>
+  </g>`;
+      }
       const lines = getRouteTextLines(label);
       const fontSize = getRouteFontSize(label);
       const lineHeight = fontSize + 2;
@@ -347,18 +437,28 @@ function getRouteMarkup(data: WegweiserData): string {
     .join('\n');
 }
 
-export function buildWegweiserSvg(data: WegweiserData): string {
+export function buildWegweiserSvg(data: WegweiserData, assets?: WegweiserAssets): string {
   const geometry = getSignGeometry(data.direction);
   const rows = getWegweiserRows(data).filter((row) => row.hasDestination);
   const textLines = rows
     .map((line) => {
       const y = line.y;
-      return `${getPictogramMarkup(line.pictogram, geometry.iconX, y, geometry.iconSize)}
-  <text x="${geometry.contentStartX}" y="${y}" class="target-text">${escapeSvgText(line.destination)}</text>
+      const targetTextX = line.pictograms.length ? geometry.contentStartX : geometry.textStartX;
+      const routePictogramSize = geometry.lineIconSize;
+      const routePictogramGap = geometry.lineIconGap;
+      const routePictogramStartX =
+        geometry.distanceAreaStartX -
+        line.routePictograms.length * routePictogramSize -
+        Math.max(0, line.routePictograms.length - 1) * routePictogramGap -
+        routePictogramGap;
+
+      return `${getLinePictogramsMarkup(line.pictograms, assets?.pictogramOptions, geometry.iconX, y)}
+  <text x="${targetTextX}" y="${y}" class="target-text">${escapeSvgText(line.destination)}</text>
+  ${getLinePictogramsMarkup(line.routePictograms, assets?.pictogramOptions, routePictogramStartX, y)}
   <text x="${geometry.distanceEndX}" y="${y}" class="distance-text">${escapeSvgText(formatDistance(line.distance))}</text>`;
     })
     .join('\n');
-  const routeMarkup = getRouteMarkup(data);
+  const routeMarkup = getRouteMarkup(data, assets?.routeOptions);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 330" role="img" aria-labelledby="sign-title sign-description">
   <title id="sign-title">HBR-Pfeilwegweiser</title>

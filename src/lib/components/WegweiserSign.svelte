@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type { DestinationPictogram, WegweiserData } from '$lib/wegweiser';
+  import type { DestinationPictogram, WegweiserData, WegweiserOption } from '$lib/wegweiser';
   import {
+    findPictogramOption,
+    findRouteOption,
     formatDistance,
     getRouteLabel,
     getRouteFontSize,
@@ -10,7 +12,15 @@
     wegweiserLayout
   } from '$lib/wegweiser';
 
-  let { data }: { data: WegweiserData } = $props();
+  let {
+    data,
+    pictogramOptions = [],
+    routeOptions = []
+  }: {
+    data: WegweiserData;
+    pictogramOptions?: WegweiserOption[];
+    routeOptions?: WegweiserOption[];
+  } = $props();
 
   const geometry = $derived(getSignGeometry(data.direction));
   const visibleLines = $derived(getWegweiserRows(data).filter((line) => line.hasDestination));
@@ -36,6 +46,23 @@
     if (pictogram === 'center') return 'Z';
     if (pictogram === 'ferry') return 'F';
     return '';
+  }
+
+  function fallbackPictogramLabel(option: WegweiserOption | undefined, pictogram: DestinationPictogram) {
+    return option?.kurzlabel ?? option?.label.slice(0, 3) ?? pictogram.slice(0, 3);
+  }
+
+  function pictogramX(startX: number, index: number) {
+    return startX + index * (geometry.lineIconSize + geometry.lineIconGap);
+  }
+
+  function routePictogramStartX(count: number) {
+    return (
+      geometry.distanceAreaStartX -
+      count * geometry.lineIconSize -
+      Math.max(0, count - 1) * geometry.lineIconGap -
+      geometry.lineIconGap
+    );
   }
 </script>
 
@@ -100,27 +127,43 @@
 
   {#each visibleLines as line}
     {@const y = line.y}
-    {#if line.pictogram !== 'none'}
+    {@const targetTextX = line.pictograms.length ? geometry.contentStartX : geometry.textStartX}
+    {#each line.pictograms as pictogram, pictogramIndex}
+      {@const pictogramOption = findPictogramOption(pictogram, pictogramOptions)}
+      {@const x = pictogramX(geometry.iconX, pictogramIndex)}
       <g class="svg-pictogram">
         <rect
-          x={geometry.iconX}
-          y={y - geometry.iconSize / 2}
-          width={geometry.iconSize}
-          height={geometry.iconSize}
+          x={x}
+          y={y - geometry.lineIconSize / 2}
+          width={geometry.lineIconSize}
+          height={geometry.lineIconSize}
           rx="3"
         />
-        <text x={geometry.iconX + geometry.iconSize / 2} y={y}>{pictogramLabel(line.pictogram)}</text>
-        {#if line.pictogram === 'station'}
-          <path d={`M${geometry.iconX + 11} ${y + 13}h34M${geometry.iconX + 17} ${y + 19}h22`} />
-        {:else if line.pictogram === 'center'}
-          <circle cx={geometry.iconX + geometry.iconSize / 2} cy={y} r="13" />
-        {:else if line.pictogram === 'ferry'}
-          <path d={`M${geometry.iconX + 10} ${y + 12}h36l-7 9H${geometry.iconX + 17}z`} />
+        {#if pictogramOption?.imageUrl}
+          <image
+            href={pictogramOption.imageUrl}
+            x={x + 5}
+            y={y - geometry.lineIconSize / 2 + 5}
+            width={geometry.lineIconSize - 10}
+            height={geometry.lineIconSize - 10}
+            preserveAspectRatio="xMidYMid meet"
+          />
+        {:else}
+          <text x={x + geometry.lineIconSize / 2} y={y}>
+            {pictogramLabel(pictogram) || fallbackPictogramLabel(pictogramOption, pictogram)}
+          </text>
+        {/if}
+        {#if !pictogramOption?.imageUrl && pictogram === 'station'}
+          <path d={`M${x + 8} ${y + 10}h28M${x + 13} ${y + 15}h18`} />
+        {:else if !pictogramOption?.imageUrl && pictogram === 'center'}
+          <circle cx={x + geometry.lineIconSize / 2} cy={y} r="11" />
+        {:else if !pictogramOption?.imageUrl && pictogram === 'ferry'}
+          <path d={`M${x + 8} ${y + 10}h28l-6 8H${x + 14}z`} />
         {/if}
       </g>
-    {/if}
+    {/each}
     <text
-      x={geometry.contentStartX}
+      x={targetTextX}
       y={y}
       fill="#d7001f"
       font-family="Arial, Helvetica, sans-serif"
@@ -130,6 +173,34 @@
     >
       {line.destination}
     </text>
+    {@const routePictogramStart = routePictogramStartX(line.routePictograms.length)}
+    {#each line.routePictograms as pictogram, pictogramIndex}
+      {@const pictogramOption = findPictogramOption(pictogram, pictogramOptions)}
+      {@const x = pictogramX(routePictogramStart, pictogramIndex)}
+      <g class="svg-pictogram">
+        <rect
+          x={x}
+          y={y - geometry.lineIconSize / 2}
+          width={geometry.lineIconSize}
+          height={geometry.lineIconSize}
+          rx="3"
+        />
+        {#if pictogramOption?.imageUrl}
+          <image
+            href={pictogramOption.imageUrl}
+            x={x + 5}
+            y={y - geometry.lineIconSize / 2 + 5}
+            width={geometry.lineIconSize - 10}
+            height={geometry.lineIconSize - 10}
+            preserveAspectRatio="xMidYMid meet"
+          />
+        {:else}
+          <text x={x + geometry.lineIconSize / 2} y={y}>
+            {pictogramLabel(pictogram) || fallbackPictogramLabel(pictogramOption, pictogram)}
+          </text>
+        {/if}
+      </g>
+    {/each}
     <text
       x={geometry.distanceEndX}
       y={y}
@@ -147,7 +218,8 @@
   {#if routes.length}
     {#each routes as route, index}
       {@const x = routeX(index)}
-      {@const label = getRouteLabel(route)}
+      {@const routeOption = findRouteOption(route, routeOptions)}
+      {@const label = routeOption?.kurzlabel ?? routeOption?.label ?? getRouteLabel(route)}
       {@const labelLines = getRouteTextLines(label)}
       {@const fontSize = getRouteFontSize(label)}
       {@const lineHeight = fontSize + 2}
@@ -159,17 +231,28 @@
           height={geometry.routeSize}
           rx="2"
         />
-        <text font-size={fontSize}>
-          {#each labelLines as labelLine, lineIndex}
-            <tspan
-              x={x + geometry.routeSize / 2}
-              y={lineIndex === 0 ? routeTextY(label) : undefined}
-              dy={lineIndex === 0 ? undefined : lineHeight}
-            >
-              {labelLine}
-            </tspan>
-          {/each}
-        </text>
+        {#if routeOption?.imageUrl}
+          <image
+            href={routeOption.imageUrl}
+            x={x + 6}
+            y={geometry.routeY + 6}
+            width={geometry.routeSize - 12}
+            height={geometry.routeSize - 12}
+            preserveAspectRatio="xMidYMid meet"
+          />
+        {:else}
+          <text font-size={fontSize}>
+            {#each labelLines as labelLine, lineIndex}
+              <tspan
+                x={x + geometry.routeSize / 2}
+                y={lineIndex === 0 ? routeTextY(label) : undefined}
+                dy={lineIndex === 0 ? undefined : lineHeight}
+              >
+                {labelLine}
+              </tspan>
+            {/each}
+          </text>
+        {/if}
       </g>
     {/each}
   {/if}

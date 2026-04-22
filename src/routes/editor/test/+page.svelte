@@ -2,9 +2,29 @@
   import WegweiserForm from '$lib/components/WegweiserForm.svelte';
   import WegweiserPreview from '$lib/components/WegweiserPreview.svelte';
   import { defaultWegweiserData, validateWegweiser } from '$lib/wegweiser';
-  import type { WegweiserData } from '$lib/wegweiser';
+  import type { WegweiserData, WegweiserOption } from '$lib/wegweiser';
 
-  let wegweiser = $state<WegweiserData>({ ...defaultWegweiserData });
+  let {
+    data
+  }: {
+    data: {
+      pictogramOptions: WegweiserOption[];
+      routeOptions: WegweiserOption[];
+    };
+  } = $props();
+
+  function getInitialWegweiserData(): WegweiserData {
+    return {
+      ...defaultWegweiserData,
+      farPictograms: [],
+      farRoutePictograms: [],
+      nearPictograms: [],
+      nearRoutePictograms: [],
+      routes: data.routeOptions.slice(0, 2).map((option) => option.value)
+    };
+  }
+
+  let wegweiser = $state<WegweiserData>(getInitialWegweiserData());
   const errors = $derived(validateWegweiser(wegweiser));
 </script>
 
@@ -23,13 +43,22 @@
     <div class="panel">
       <p class="eyebrow">Formular</p>
       <h2>Eingaben</h2>
-      <WegweiserForm bind:data={wegweiser} {errors} />
+      <WegweiserForm
+        bind:data={wegweiser}
+        {errors}
+        pictogramOptions={data.pictogramOptions}
+        routeOptions={data.routeOptions}
+      />
     </div>
 
     <div class="panel preview-panel">
       <p class="eyebrow">Vorschau</p>
       <h2>Wegweiser-Vorschau</h2>
-      <WegweiserPreview data={wegweiser} />
+      <WegweiserPreview
+        data={wegweiser}
+        pictogramOptions={data.pictogramOptions}
+        routeOptions={data.routeOptions}
+      />
     </div>
   </section>
 </main>
