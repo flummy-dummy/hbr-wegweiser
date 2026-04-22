@@ -277,7 +277,7 @@
             class="svg-knotenpunkt-circle"
             cx={x + geometry.routeSize / 2}
             cy={geometry.routeY + geometry.routeSize / 2}
-            r={geometry.routeSize * 0.38}
+            r={geometry.routeSize * wegweiserLayout.knotenpunktKreisRadiusFaktor}
           />
           <text class="svg-knotenpunkt-text" x={x + geometry.routeSize / 2} y={geometry.routeY + geometry.routeSize / 2 + 1}>
             {route.number}

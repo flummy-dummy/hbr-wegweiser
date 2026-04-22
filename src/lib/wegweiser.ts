@@ -59,7 +59,7 @@ export type WegweiserValidation = {
 
 export const wegweiserLayout = {
   ansichtBreite: 1000,
-  ansichtHoehe: 340,
+  ansichtHoehe: 420,
   schildBreite: 1000,
   schildHoehe: 250,
   schildLinks: 0,
@@ -90,11 +90,14 @@ export const wegweiserLayout = {
     unten: 177,
     einzeln: 125
   },
-  einschubQuadratGroesse: 74,
-  einschubAbstand: 8,
+  einschubQuadratGroesse: 150,
+  einschubAbstand: 0,
   einschubY: 258,
-  einschubSchriftGroesse: 11,
-  einschubKleineSchriftGroesse: 9
+  einschubSchriftGroesse: 22,
+  einschubKleineSchriftGroesse: 18,
+  knotenpunktKreisRadiusFaktor: 0.39,
+  knotenpunktKreisLinienBreite: 5,
+  knotenpunktSchriftGroesse: 52
 } as const;
 
 export const pictogramOptions: WegweiserOption[] = [
@@ -504,7 +507,7 @@ function getRouteMarkup(data: WegweiserData, options: WegweiserOption[] = routeO
       if (route.type === 'knotenpunkt') {
         return `<g class="route-item knotenpunkt-item">
     <rect x="${x}" y="${geometry.routeY}" width="${geometry.routeSize}" height="${geometry.routeSize}" rx="0"/>
-    <circle cx="${x + geometry.routeSize / 2}" cy="${geometry.routeY + geometry.routeSize / 2}" r="${geometry.routeSize * 0.38}"/>
+    <circle cx="${x + geometry.routeSize / 2}" cy="${geometry.routeY + geometry.routeSize / 2}" r="${geometry.routeSize * wegweiserLayout.knotenpunktKreisRadiusFaktor}"/>
     <text class="knotenpunkt-text" x="${x + geometry.routeSize / 2}" y="${geometry.routeY + geometry.routeSize / 2 + 1}">${route.number}</text>
   </g>`;
       }
@@ -572,7 +575,7 @@ export function buildWegweiserSvg(data: WegweiserData, assets?: WegweiserAssets)
     .distance-text{text-anchor:end}
     .distance-decimal{font-size:${wegweiserLayout.entfernungNachkommaSchriftGroesse}px}
     .pictogram rect{fill:#fff;stroke:#d7001f;stroke-width:2}.pictogram text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;text-anchor:middle;dominant-baseline:middle}.picto-line{fill:none;stroke:#d7001f;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}.knotenpunkt-item rect{fill:#d7001f;stroke:#d7001f;stroke-width:0}.knotenpunkt-item circle{fill:none;stroke:#fff;stroke-width:3}.route-item .knotenpunkt-text{fill:#fff;font-size:31px;font-weight:700;text-anchor:middle;dominant-baseline:middle}
+    .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}.knotenpunkt-item rect{fill:#d7001f;stroke:#d7001f;stroke-width:0}.knotenpunkt-item circle{fill:none;stroke:#fff;stroke-width:${wegweiserLayout.knotenpunktKreisLinienBreite}}.route-item .knotenpunkt-text{fill:#fff;font-size:${wegweiserLayout.knotenpunktSchriftGroesse}px;font-weight:700;text-anchor:middle;dominant-baseline:middle}
   </style>
   <rect width="${wegweiserLayout.ansichtBreite}" height="${wegweiserLayout.ansichtHoehe}" fill="#f8fafc"/>
   <path class="sign-outline" d="${geometry.signPath}"/>

@@ -55,7 +55,7 @@
           ? [{
               key: getRouteInsertKey(route),
               type: route.type,
-              label: option.kurzlabel ?? option.label,
+              label: option.label,
               option,
               route
             }]
@@ -374,9 +374,6 @@
             {/if}
             <span>
               <strong>{option.label}</strong>
-              {#if option.kurzlabel || option.slug}
-                <small>{[option.kurzlabel, option.slug].filter(Boolean).join(' · ')}</small>
-              {/if}
             </span>
           </button>
         {/each}
