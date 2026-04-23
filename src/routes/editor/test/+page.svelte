@@ -10,6 +10,7 @@
     data: {
       pictogramOptions: WegweiserOption[];
       routeOptions: WegweiserOption[];
+      pocketBaseWarning: string | null;
     };
   } = $props();
 
@@ -40,6 +41,9 @@
     <a href="/">Startseite</a>
     <h1>Editor-Test</h1>
     <p>Erster fachlicher MVP für einen HBR-Pfeilwegweiser.</p>
+    {#if data.pocketBaseWarning}
+      <p class="form-error">{data.pocketBaseWarning}</p>
+    {/if}
   </header>
 
   <section class="editor-grid" aria-label="Editor-Arbeitsbereich">

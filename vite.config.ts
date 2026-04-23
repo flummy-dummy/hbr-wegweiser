@@ -3,7 +3,13 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [sveltekit()],
+  server: {
+    host: '0.0.0.0',
+    port: 4173
+  },
   preview: {
+    host: '0.0.0.0',
+    port: 4173,
     allowedHosts: ['wegweiser.holbes.de']
   }
 });

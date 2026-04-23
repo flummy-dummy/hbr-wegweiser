@@ -49,6 +49,15 @@ function mapRouteOption(pb: PocketBase, record: RecordModel) {
 export async function load() {
   const pb = createPocketBaseClient();
 
+  if (!pb) {
+    return {
+      pictogramOptions,
+      routeOptions,
+      pocketBaseWarning:
+        'PocketBase ist nicht konfiguriert. Setze PUBLIC_POCKETBASE_URL, damit Zielpiktogramme und Themenrouten geladen werden.'
+    };
+  }
+
   try {
     const [zielPiktogramme, themenrouten] = await Promise.all([
       pb.collection('ziel_piktogramme').getFullList<RecordModel>({
@@ -66,14 +75,17 @@ export async function load() {
         pictogramOptions[0],
         ...zielPiktogramme.map((record) => mapPictogramOption(pb, record))
       ],
-      routeOptions: themenrouten.map((record) => mapRouteOption(pb, record))
+      routeOptions: themenrouten.map((record) => mapRouteOption(pb, record)),
+      pocketBaseWarning: null
     };
   } catch (error) {
     console.error('PocketBase-Stammdaten konnten nicht geladen werden.', error);
 
     return {
       pictogramOptions,
-      routeOptions
+      routeOptions,
+      pocketBaseWarning:
+        'PocketBase-Stammdaten konnten nicht geladen werden. Der Editor läuft mit lokalen Fallback-Daten weiter.'
     };
   }
 }
