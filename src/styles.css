@@ -119,6 +119,41 @@ p {
   font-size: 1.4rem;
 }
 
+.draft-save-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.draft-save-panel label {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.draft-save-panel input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #b8c2d2;
+  border-radius: 6px;
+  color: #18212f;
+  font: inherit;
+  background: #fff;
+}
+
+.draft-save-panel input:focus {
+  border-color: #1f4f91;
+  outline: 3px solid #c9ddff;
+}
+
+.draft-save-button {
+  margin-top: 0;
+}
+
 .editor-form {
   display: grid;
   gap: 22px;
@@ -218,6 +253,17 @@ p {
   border: 1px solid #f1b8b3;
   border-radius: 6px;
   background: #fff4f2;
+}
+
+.form-success {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #a7f3d0;
+  border-radius: 6px;
+  background: #ecfdf5;
+  color: #166534;
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .direction-field,
@@ -647,7 +693,8 @@ p {
   .form-row.with-pictogram,
   .destination-line-main,
   .pictogram-picker-row,
-  .knotenpunkt-adder {
+  .knotenpunkt-adder,
+  .draft-save-panel {
     grid-template-columns: 1fr;
   }
 

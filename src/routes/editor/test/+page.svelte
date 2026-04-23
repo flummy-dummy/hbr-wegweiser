@@ -28,8 +28,59 @@
     };
   }
 
-  let wegweiser = $state<WegweiserData>(getInitialWegweiserData());
+  function getDefaultDraftTitle(wegweiser: WegweiserData) {
+    const parts = [wegweiser.farDestination.trim(), wegweiser.nearDestination.trim()].filter(Boolean);
+
+    return parts.length ? parts.join(' / ') : 'Neuer Wegweiser-Entwurf';
+  }
+
+  const initialWegweiser = getInitialWegweiserData();
+
+  let wegweiser = $state<WegweiserData>(initialWegweiser);
+  let entwurfTitel = $state(getDefaultDraftTitle(initialWegweiser));
+  let isSavingDraft = $state(false);
+  let saveDraftMessage = $state<string | null>(null);
+  let saveDraftError = $state<string | null>(null);
   const errors = $derived(validateWegweiser(wegweiser));
+
+  async function saveDraft() {
+    saveDraftMessage = null;
+    saveDraftError = null;
+
+    if (errors.form || errors.farDistance || errors.nearDistance) {
+      saveDraftError = 'Bitte korrigiere zuerst die Eingaben im Formular.';
+      return;
+    }
+
+    isSavingDraft = true;
+
+    try {
+      const response = await fetch('/api/entwuerfe', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          titel: entwurfTitel,
+          wegweiser
+        })
+      });
+
+      const result = (await response.json()) as { message?: string };
+
+      if (!response.ok) {
+        saveDraftError = result.message ?? 'Der Entwurf konnte nicht gespeichert werden.';
+        return;
+      }
+
+      saveDraftMessage = result.message ?? 'Entwurf wurde gespeichert.';
+    } catch (error) {
+      console.error('Entwurf konnte nicht gespeichert werden.', error);
+      saveDraftError = 'Der Entwurf konnte nicht gespeichert werden.';
+    } finally {
+      isSavingDraft = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -50,6 +101,21 @@
     <div class="panel">
       <p class="eyebrow">Formular</p>
       <h2>Eingaben</h2>
+      <div class="draft-save-panel">
+        <label>
+          <span>Entwurfstitel</span>
+          <input bind:value={entwurfTitel} placeholder="Neuer Wegweiser-Entwurf" type="text" />
+        </label>
+        <button class="button draft-save-button" disabled={isSavingDraft} type="button" onclick={saveDraft}>
+          {isSavingDraft ? 'Speichert...' : 'Entwurf speichern'}
+        </button>
+      </div>
+      {#if saveDraftMessage}
+        <p class="form-success">{saveDraftMessage}</p>
+      {/if}
+      {#if saveDraftError}
+        <p class="form-error">{saveDraftError}</p>
+      {/if}
       <WegweiserForm
         bind:data={wegweiser}
         {errors}
