@@ -1,4 +1,5 @@
 import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
+import { isWegweiserData, parseDistance } from '$lib/wegweiser';
 import type { WegweiserData } from '$lib/wegweiser';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -7,27 +8,6 @@ type SaveDraftPayload = {
   titel?: unknown;
   wegweiser?: unknown;
 };
-
-function isWegweiserData(value: unknown): value is WegweiserData {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-
-  return (
-    typeof candidate.farDestination === 'string' &&
-    typeof candidate.farDistance === 'string' &&
-    typeof candidate.nearDestination === 'string' &&
-    typeof candidate.nearDistance === 'string' &&
-    (candidate.direction === 'left' || candidate.direction === 'right') &&
-    Array.isArray(candidate.farPictograms) &&
-    Array.isArray(candidate.farRoutePictograms) &&
-    Array.isArray(candidate.nearPictograms) &&
-    Array.isArray(candidate.nearRoutePictograms) &&
-    Array.isArray(candidate.routes)
-  );
-}
 
 function buildDraftTitle(title: string, wegweiser: WegweiserData): string {
   const normalizedTitle = title.trim();
@@ -73,16 +53,17 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const recordData = {
     titel,
-    wegweiser_typ: 'pfeilwegweiser',
+    wegweiser_typ: 'arrow',
     richtung: wegweiser.direction,
     ziel_oben_text: wegweiser.farDestination.trim(),
-    ziel_oben_entfernung: wegweiser.farDistance.trim(),
+    ziel_oben_entfernung: parseDistance(wegweiser.farDistance),
     ziel_unten_text: wegweiser.nearDestination.trim(),
-    ziel_unten_entfernung: wegweiser.nearDistance.trim(),
-    json_konfiguration: JSON.stringify(wegweiser)
+    ziel_unten_entfernung: parseDistance(wegweiser.nearDistance),
+    json_konfiguration: wegweiser
   };
 
   try {
+    console.log(recordData);
     const record = await pb.collection('wegweiser_entwuerfe').create(recordData);
 
     return json({

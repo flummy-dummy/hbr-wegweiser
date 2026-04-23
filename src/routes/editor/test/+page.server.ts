@@ -1,4 +1,6 @@
 import { pictogramOptions, routeOptions } from '$lib/wegweiser';
+import type { WegweiserDraftListItem } from '$lib/wegweiser';
+import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
 import { createPocketBaseClient, getPocketBaseFileUrl } from '$lib/server/pocketbase';
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
@@ -46,20 +48,34 @@ function mapRouteOption(pb: PocketBase, record: RecordModel) {
   };
 }
 
+function mapDraft(record: RecordModel): WegweiserDraftListItem {
+  return {
+    id: String(record.id ?? ''),
+    titel: stringField(record, ['titel'], 'Ohne Titel'),
+    updated: stringField(record, ['updated']),
+    jsonKonfiguration: record.json_konfiguration ?? null
+  };
+}
+
 export async function load() {
   const pb = createPocketBaseClient();
+  const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
+    console.error('PocketBase-Admin-Zugang fuer Entwuerfe konnte nicht initialisiert werden.', error);
+    return null;
+  });
 
   if (!pb) {
     return {
       pictogramOptions,
       routeOptions,
+      drafts: [] satisfies WegweiserDraftListItem[],
       pocketBaseWarning:
         'PocketBase ist nicht konfiguriert. Setze PUBLIC_POCKETBASE_URL, damit Zielpiktogramme und Themenrouten geladen werden.'
     };
   }
 
   try {
-    const [zielPiktogramme, themenrouten] = await Promise.all([
+    const [zielPiktogramme, themenrouten, entwuerfe] = await Promise.all([
       pb.collection('ziel_piktogramme').getFullList<RecordModel>({
         filter: 'aktiv = true',
         sort: 'sortierung'
@@ -67,7 +83,12 @@ export async function load() {
       pb.collection('themenrouten').getFullList<RecordModel>({
         filter: 'aktiv = true',
         sort: 'sortierung'
-      })
+      }),
+      pbAdmin
+        ? pbAdmin.collection('wegweiser_entwuerfe').getFullList<RecordModel>({
+            sort: '-updated'
+          })
+        : Promise.resolve([] as RecordModel[])
     ]);
 
     return {
@@ -76,6 +97,7 @@ export async function load() {
         ...zielPiktogramme.map((record) => mapPictogramOption(pb, record))
       ],
       routeOptions: themenrouten.map((record) => mapRouteOption(pb, record)),
+      drafts: entwuerfe.map((record) => mapDraft(record)),
       pocketBaseWarning: null
     };
   } catch (error) {
@@ -84,6 +106,7 @@ export async function load() {
     return {
       pictogramOptions,
       routeOptions,
+      drafts: [] satisfies WegweiserDraftListItem[],
       pocketBaseWarning:
         'PocketBase-Stammdaten konnten nicht geladen werden. Der Editor läuft mit lokalen Fallback-Daten weiter.'
     };

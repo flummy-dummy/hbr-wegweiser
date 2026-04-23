@@ -1,13 +1,14 @@
 <script lang="ts">
   import WegweiserForm from '$lib/components/WegweiserForm.svelte';
   import WegweiserPreview from '$lib/components/WegweiserPreview.svelte';
-  import { defaultWegweiserData, validateWegweiser } from '$lib/wegweiser';
-  import type { WegweiserData, WegweiserOption } from '$lib/wegweiser';
+  import { defaultWegweiserData, normalizeWegweiserData, validateWegweiser } from '$lib/wegweiser';
+  import type { WegweiserData, WegweiserDraftListItem, WegweiserOption } from '$lib/wegweiser';
 
   let {
     data
   }: {
     data: {
+      drafts: WegweiserDraftListItem[];
       pictogramOptions: WegweiserOption[];
       routeOptions: WegweiserOption[];
       pocketBaseWarning: string | null;
@@ -37,11 +38,78 @@
   const initialWegweiser = getInitialWegweiserData();
 
   let wegweiser = $state<WegweiserData>(initialWegweiser);
+  let selectedDraftId = $state('');
   let entwurfTitel = $state(getDefaultDraftTitle(initialWegweiser));
   let isSavingDraft = $state(false);
   let saveDraftMessage = $state<string | null>(null);
   let saveDraftError = $state<string | null>(null);
+  let loadDraftError = $state<string | null>(null);
   const errors = $derived(validateWegweiser(wegweiser));
+
+  function formatDraftUpdated(value: string) {
+    if (!value) {
+      return 'ohne Zeitangabe';
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return new Intl.DateTimeFormat('de-DE', {
+      dateStyle: 'short',
+      timeStyle: 'short'
+    }).format(date);
+  }
+
+  function loadDraft() {
+    saveDraftMessage = null;
+    saveDraftError = null;
+    loadDraftError = null;
+
+    const draft = data.drafts.find((entry) => entry.id === selectedDraftId);
+
+    if (!draft) {
+      return;
+    }
+
+    console.log('Entwurf laden: ID', draft.id);
+    console.log('Entwurf laden: Datensatz', draft);
+    console.log('Entwurf laden: json_konfiguration', draft.jsonKonfiguration);
+
+    if (!draft.jsonKonfiguration) {
+      loadDraftError = 'Der ausgewaehlte Entwurf enthaelt keine gespeicherte Konfiguration.';
+      return;
+    }
+
+    let parsedConfiguration: unknown;
+
+    if (typeof draft.jsonKonfiguration === 'string') {
+      try {
+        parsedConfiguration = JSON.parse(draft.jsonKonfiguration);
+      } catch (error) {
+        console.error('Entwurfs-Konfiguration ist kein gueltiges JSON.', error);
+        loadDraftError = 'Die gespeicherte Konfiguration ist ungueltig und konnte nicht geladen werden.';
+        return;
+      }
+    } else if (typeof draft.jsonKonfiguration === 'object') {
+      parsedConfiguration = draft.jsonKonfiguration;
+    } else {
+      loadDraftError = 'Die gespeicherte Konfiguration liegt in einem nicht unterstuetzten Format vor.';
+      return;
+    }
+
+    const normalized = normalizeWegweiserData(parsedConfiguration, initialWegweiser);
+
+    wegweiser = normalized.data;
+    entwurfTitel = draft.titel;
+    console.log('Entwurf laden: erfolgreich uebernommen', {
+      draftId: draft.id,
+      usedDefaults: normalized.usedDefaults,
+      wegweiser: normalized.data
+    });
+  }
 
   async function saveDraft() {
     saveDraftMessage = null;
@@ -101,6 +169,28 @@
     <div class="panel">
       <p class="eyebrow">Formular</p>
       <h2>Eingaben</h2>
+      <div class="draft-load-panel">
+        <label>
+          <span>Entwurf laden</span>
+          <select bind:value={selectedDraftId}>
+            <option value="">Entwurf auswaehlen</option>
+            {#each data.drafts as draft}
+              <option value={draft.id}>{draft.titel} - {formatDraftUpdated(draft.updated)}</option>
+            {/each}
+          </select>
+        </label>
+        <button
+          class="button draft-load-button"
+          disabled={!selectedDraftId}
+          type="button"
+          onclick={loadDraft}
+        >
+          Entwurf laden
+        </button>
+      </div>
+      {#if loadDraftError}
+        <p class="form-error">{loadDraftError}</p>
+      {/if}
       <div class="draft-save-panel">
         <label>
           <span>Entwurfstitel</span>

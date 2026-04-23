@@ -57,6 +57,13 @@ export type WegweiserValidation = {
   nearDistance?: string;
 };
 
+export type WegweiserDraftListItem = {
+  id: string;
+  titel: string;
+  updated: string;
+  jsonKonfiguration: unknown;
+};
+
 export const wegweiserLayout = {
   ansichtBreite: 1000,
   ansichtHoehe: 420,
@@ -199,6 +206,117 @@ export function getVisibleLines(data: WegweiserData): WegweiserLine[] {
       routePictograms: data.nearRoutePictograms.slice(0, 2)
     }
   ].filter((line) => line.destination || line.distance);
+}
+
+export function isWegweiserData(value: unknown): value is WegweiserData {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+
+  return (
+    typeof candidate.farDestination === 'string' &&
+    typeof candidate.farDistance === 'string' &&
+    typeof candidate.nearDestination === 'string' &&
+    typeof candidate.nearDistance === 'string' &&
+    (candidate.direction === 'left' || candidate.direction === 'right') &&
+    Array.isArray(candidate.farPictograms) &&
+    Array.isArray(candidate.farRoutePictograms) &&
+    Array.isArray(candidate.nearPictograms) &&
+    Array.isArray(candidate.nearRoutePictograms) &&
+    Array.isArray(candidate.routes)
+  );
+}
+
+function sanitizePictogramArray(value: unknown): DestinationPictogram[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is DestinationPictogram => typeof entry === 'string').slice(0, 2);
+}
+
+function sanitizeRouteArray(value: unknown): RouteInsert[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry): RouteInsert[] => {
+    if (!entry || typeof entry !== 'object') {
+      return [];
+    }
+
+    const candidate = entry as Record<string, unknown>;
+
+    if (candidate.type === 'themenroute' && typeof candidate.route === 'string' && candidate.route.trim()) {
+      return [{ type: 'themenroute', route: candidate.route.trim() }];
+    }
+
+    if (
+      candidate.type === 'knotenpunkt' &&
+      typeof candidate.number === 'number' &&
+      Number.isInteger(candidate.number) &&
+      candidate.number >= 1 &&
+      candidate.number <= 99
+    ) {
+      return [{ type: 'knotenpunkt', number: candidate.number }];
+    }
+
+    return [];
+  }).slice(0, 6);
+}
+
+export function normalizeWegweiserData(
+  value: unknown,
+  defaults: WegweiserData = defaultWegweiserData
+): { data: WegweiserData; usedDefaults: boolean } {
+  const candidate = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  let usedDefaults = false;
+
+  function getString(field: keyof WegweiserData): string {
+    const fieldValue = candidate[field];
+
+    if (typeof fieldValue === 'string') {
+      return fieldValue;
+    }
+
+    usedDefaults = true;
+    return defaults[field] as string;
+  }
+
+  const direction = candidate.direction === 'left' || candidate.direction === 'right'
+    ? candidate.direction
+    : defaults.direction;
+  if (direction !== candidate.direction) {
+    usedDefaults = true;
+  }
+
+  const farPictograms = sanitizePictogramArray(candidate.farPictograms);
+  const farRoutePictograms = sanitizePictogramArray(candidate.farRoutePictograms);
+  const nearPictograms = sanitizePictogramArray(candidate.nearPictograms);
+  const nearRoutePictograms = sanitizePictogramArray(candidate.nearRoutePictograms);
+  const routes = sanitizeRouteArray(candidate.routes);
+
+  if (!Array.isArray(candidate.farPictograms) || !Array.isArray(candidate.farRoutePictograms) || !Array.isArray(candidate.nearPictograms) || !Array.isArray(candidate.nearRoutePictograms) || !Array.isArray(candidate.routes)) {
+    usedDefaults = true;
+  }
+
+  return {
+    data: {
+      farDestination: getString('farDestination'),
+      farDistance: getString('farDistance'),
+      farPictograms,
+      farRoutePictograms,
+      nearDestination: getString('nearDestination'),
+      nearDistance: getString('nearDistance'),
+      nearPictograms,
+      nearRoutePictograms,
+      direction,
+      routes
+    },
+    usedDefaults
+  };
 }
 
 export function getWegweiserRows(data: WegweiserData): WegweiserRow[] {
