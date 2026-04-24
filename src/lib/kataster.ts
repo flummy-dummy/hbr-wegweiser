@@ -12,7 +12,12 @@ export type GeoJsonGeometry =
       coordinates?: unknown;
     };
 
-export type KatasterCollectionType = 'knoten' | 'pfosten' | 'kanten';
+export type KatasterCollectionType =
+  | 'knoten'
+  | 'pfosten'
+  | 'kanten'
+  | 'themenroute'
+  | 'knotenpunktverbindung';
 
 export type KatasterMapRecord = {
   id: string;
@@ -20,6 +25,8 @@ export type KatasterMapRecord = {
   title: string;
   status: string;
   subtitle?: string;
+  groupKey?: string;
+  color?: string;
   geomJson: GeoJsonGeometry | null;
   lon: number | null;
   lat: number | null;

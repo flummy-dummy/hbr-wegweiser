@@ -9,6 +9,8 @@
       knoten: KatasterMapRecord[];
       pfosten: KatasterMapRecord[];
       kanten: KatasterMapRecord[];
+      themenrouten: KatasterMapRecord[];
+      knotenpunktverbindungen: KatasterMapRecord[];
       pocketBaseWarning: string | null;
     };
   } = $props();
@@ -34,8 +36,16 @@
       <span>Knoten: {data.knoten.length}</span>
       <span>Pfosten: {data.pfosten.length}</span>
       <span>Kanten: {data.kanten.length}</span>
+      <span>Themenrouten: {data.themenrouten.length}</span>
+      <span>Knotenpunktverbindungen: {data.knotenpunktverbindungen.length}</span>
     </div>
 
-    <KatasterMap knoten={data.knoten} pfosten={data.pfosten} kanten={data.kanten} />
+    <KatasterMap
+      knoten={data.knoten}
+      pfosten={data.pfosten}
+      kanten={data.kanten}
+      themenrouten={data.themenrouten}
+      knotenpunktverbindungen={data.knotenpunktverbindungen}
+    />
   </section>
 </main>

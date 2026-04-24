@@ -8,11 +8,15 @@
   let {
     knoten = [],
     pfosten = [],
-    kanten = []
+    kanten = [],
+    themenrouten = [],
+    knotenpunktverbindungen = []
   }: {
     knoten: KatasterMapRecord[];
     pfosten: KatasterMapRecord[];
     kanten: KatasterMapRecord[];
+    themenrouten: KatasterMapRecord[];
+    knotenpunktverbindungen: KatasterMapRecord[];
   } = $props();
 
   let mapElement = $state<HTMLDivElement | null>(null);
@@ -102,13 +106,25 @@
         const knotenFeatures = katasterMap.createFeaturesFromRecords(knoten);
         const pfostenFeatures = katasterMap.createFeaturesFromRecords(pfosten);
         const kantenFeatures = katasterMap.createFeaturesFromRecords(kanten);
+        const themenrouteFeatures = katasterMap.createFeaturesFromRecords(themenrouten);
+        const verbindungFeatures = katasterMap.createFeaturesFromRecords(knotenpunktverbindungen);
 
         console.log('[KatasterMap] Datenlayer vorbereitet', {
           knoten: knotenFeatures.length,
           pfosten: pfostenFeatures.length,
-          kanten: kantenFeatures.length
+          kanten: kantenFeatures.length,
+          themenrouten: themenrouteFeatures.length,
+          knotenpunktverbindungen: verbindungFeatures.length
         });
 
+        const themenrouteLayer = new VectorLayer({
+          source: new VectorSource({ features: themenrouteFeatures }),
+          style: (feature) => katasterMap.getThemenrouteStyle(feature as Feature<Geometry>)
+        });
+        const verbindungLayer = new VectorLayer({
+          source: new VectorSource({ features: verbindungFeatures }),
+          style: katasterMap.getKatasterStyle('knotenpunktverbindung')
+        });
         const kantenLayer = new VectorLayer({
           source: new VectorSource({ features: kantenFeatures }),
           style: katasterMap.getKatasterStyle('kanten')
@@ -122,12 +138,20 @@
           style: katasterMap.getKatasterStyle('knoten')
         });
 
+        map.addLayer(themenrouteLayer);
+        map.addLayer(verbindungLayer);
         map.addLayer(kantenLayer);
         map.addLayer(pfostenLayer);
         map.addLayer(knotenLayer);
         console.log('[KatasterMap] Vektorlayer hinzugefügt');
 
-        const allFeatures = [...knotenFeatures, ...pfostenFeatures, ...kantenFeatures];
+        const allFeatures = [
+          ...knotenFeatures,
+          ...pfostenFeatures,
+          ...kantenFeatures,
+          ...themenrouteFeatures,
+          ...verbindungFeatures
+        ];
 
         if (allFeatures.length) {
           const extent = katasterMap.getFeaturesExtent(allFeatures);

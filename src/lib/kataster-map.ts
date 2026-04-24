@@ -51,7 +51,9 @@ export function createFeaturesFromRecords(records: KatasterMapRecord[]): Feature
         collection: record.collection,
         title: record.title,
         subtitle: record.subtitle ?? '',
-        status: record.status ?? ''
+        status: record.status ?? '',
+        groupKey: record.groupKey ?? '',
+        color: record.color ?? ''
       });
       return feature;
     })
@@ -88,10 +90,40 @@ export function getKatasterStyle(collection: KatasterMapRecord['collection']): S
     });
   }
 
+  if (collection === 'knotenpunktverbindung') {
+    return new Style({
+      stroke: new Stroke({
+        color: '#7c3aed',
+        width: 4,
+        lineDash: [10, 8]
+      })
+    });
+  }
+
+  if (collection === 'themenroute') {
+    return new Style({
+      stroke: new Stroke({
+        color: '#f59e0b',
+        width: 5
+      })
+    });
+  }
+
   return new Style({
     stroke: new Stroke({
       color: '#2f7d32',
       width: 3
+    })
+  });
+}
+
+export function getThemenrouteStyle(feature: Feature<Geometry>): Style {
+  const color = feature.get('color');
+
+  return new Style({
+    stroke: new Stroke({
+      color: typeof color === 'string' && color.trim() ? color : '#f59e0b',
+      width: 5
     })
   });
 }
