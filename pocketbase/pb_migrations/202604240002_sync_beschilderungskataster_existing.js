@@ -7,15 +7,69 @@ migrate((app) => {
     }
   };
 
-  const hasField = (collection, fieldName) =>
-    Array.isArray(collection?.fields) && collection.fields.some((field) => field.name === fieldName);
+  const fieldFactory = (config) => {
+    switch (config.type) {
+      case 'text':
+        return new TextField(config);
+      case 'number':
+        return new NumberField(config);
+      case 'bool':
+        return new BoolField(config);
+      case 'json':
+        return new JSONField(config);
+      case 'select':
+        return new SelectField(config);
+      case 'relation':
+        return new RelationField(config);
+      case 'file':
+        return new FileField(config);
+      case 'date':
+        return new DateField(config);
+      default:
+        throw new Error(`Unsupported field type: ${config.type}`);
+    }
+  };
+
+  const ensureCollection = (config) => {
+    const existing = findCollection(config.name);
+
+    if (existing) {
+      return existing;
+    }
+
+    const collection = new Collection({
+      type: 'base',
+      name: config.name,
+      system: false,
+      listRule: null,
+      viewRule: null,
+      createRule: null,
+      updateRule: null,
+      deleteRule: null
+    });
+
+    for (const field of config.fields ?? []) {
+      collection.fields.add(fieldFactory(field));
+    }
+
+    collection.indexes = [...(config.indexes ?? [])];
+    app.save(collection);
+
+    return collection;
+  };
 
   const ensureField = (collection, fieldConfig) => {
-    if (!collection || hasField(collection, fieldConfig.name)) {
+    if (!collection) {
       return;
     }
 
-    collection.fields.push(fieldConfig);
+    const existingField = collection.fields.getByName(fieldConfig.name);
+
+    if (existingField) {
+      return;
+    }
+
+    collection.fields.add(fieldFactory(fieldConfig));
     app.save(collection);
   };
 
@@ -32,30 +86,6 @@ migrate((app) => {
 
     collection.indexes = [...currentIndexes, indexSql];
     app.save(collection);
-  };
-
-  const ensureCollection = (config) => {
-    const existing = findCollection(config.name);
-
-    if (existing) {
-      return existing;
-    }
-
-    const collection = new Collection({
-      type: 'base',
-      name: config.name,
-      listRule: null,
-      viewRule: null,
-      createRule: null,
-      updateRule: null,
-      deleteRule: null,
-      fields: config.fields,
-      indexes: config.indexes ?? []
-    });
-
-    app.save(collection);
-
-    return collection;
   };
 
   const knoten = ensureCollection({
@@ -337,6 +367,6 @@ migrate((app) => {
   ]) {
     ensureField(medien, field);
   }
-}, (app) => {
-  // additive Änderungsmigration: kein Rollback, das bestehende Felder oder Collections entfernt
+}, (_app) => {
+  // additive Änderungsmigration: kein destruktives Rollback
 });

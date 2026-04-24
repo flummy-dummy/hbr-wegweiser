@@ -16,5 +16,6 @@
     </p>
     <a class="button" href="/editor/test">Editor testen</a>
     <a class="button secondary-button" href="/admin/themenrouten">Themenrouten verwalten</a>
+    <a class="button secondary-button" href="/kataster/karte">Katasterkarte</a>
   </section>
 </main>

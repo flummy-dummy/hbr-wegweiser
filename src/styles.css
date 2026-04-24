@@ -94,6 +94,10 @@ p {
   width: min(1280px, calc(100% - 32px));
 }
 
+.kataster-page {
+  width: min(1400px, calc(100% - 32px));
+}
+
 .editor-header {
   margin-bottom: 32px;
 }
@@ -127,6 +131,102 @@ p {
 .panel h2 {
   margin-bottom: 20px;
   font-size: 1.4rem;
+}
+
+.kataster-panel {
+  min-height: auto;
+}
+
+.kataster-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+  color: #516074;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.kataster-map-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: start;
+}
+
+.kataster-map-frame {
+  position: relative;
+  min-height: 640px;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  background: #dbeafe;
+  overflow: hidden;
+}
+
+.kataster-map {
+  position: relative;
+  width: 100%;
+  height: 640px;
+  background: #dbeafe;
+}
+
+.kataster-map :global(.ol-viewport) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #dbeafe;
+}
+
+.kataster-map :global(.ol-layer),
+.kataster-map :global(.ol-layer canvas),
+.kataster-map :global(.ol-layer img) {
+  max-width: none;
+}
+
+.kataster-map :global(.ol-viewport),
+.kataster-map :global(.ol-unselectable),
+.kataster-map-frame {
+  border-radius: 8px;
+}
+
+.kataster-info-panel {
+  min-height: 160px;
+  padding: 16px;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.kataster-info-panel h2 {
+  margin-bottom: 12px;
+  font-size: 1.05rem;
+}
+
+.kataster-info-panel p {
+  margin-bottom: 0;
+  color: #516074;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.kataster-info-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.kataster-info-list dt {
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.kataster-info-list dd {
+  margin: 0;
+  color: #18212f;
+  font-size: 0.92rem;
 }
 
 .admin-grid {
@@ -1164,8 +1264,15 @@ p {
   .admin-grid,
   .field-row.two-columns,
   .admin-route-item,
-  .admin-route-meta {
+  .admin-route-meta,
+  .kataster-map-shell {
     grid-template-columns: 1fr;
+  }
+
+  .kataster-map-frame,
+  .kataster-map {
+    min-height: 520px;
+    height: 520px;
   }
 
   .form-row label:last-child input {

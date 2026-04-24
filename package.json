@@ -21,6 +21,7 @@
     "vite": "^6.0.7"
   },
   "dependencies": {
+    "ol": "^10.9.0",
     "pocketbase": "^0.26.8"
   }
 }
