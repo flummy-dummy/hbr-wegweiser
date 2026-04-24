@@ -36,7 +36,6 @@ export const POST: RequestHandler = async ({ request }) => {
   const recordData = createDraftRecordData(parsedPayload.titel, parsedPayload.wegweiser);
 
   try {
-    console.log(recordData);
     const record = await pb.collection('wegweiser_entwuerfe').create(recordData);
 
     return json({

@@ -103,10 +103,6 @@
       return;
     }
 
-    console.log('Entwurf laden: ID', draft.id);
-    console.log('Entwurf laden: Datensatz', draft);
-    console.log('Entwurf laden: json_konfiguration', draft.jsonKonfiguration);
-
     if (!draft.jsonKonfiguration) {
       loadDraftError = 'Der ausgewaehlte Entwurf enthaelt keine gespeicherte Konfiguration.';
       return;
@@ -136,11 +132,6 @@
     isDraftTitleManual = true;
     currentDraftId = draft.id;
     isDraftMenuOpen = false;
-    console.log('Entwurf laden: erfolgreich uebernommen', {
-      draftId: draft.id,
-      usedDefaults: normalized.usedDefaults,
-      wegweiser: normalized.data
-    });
   }
 
   function resetToNewDraft() {
