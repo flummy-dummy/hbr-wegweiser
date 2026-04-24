@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { invalidateAll } from '$app/navigation';
   import WegweiserForm from '$lib/components/WegweiserForm.svelte';
   import WegweiserPreview from '$lib/components/WegweiserPreview.svelte';
-  import { defaultWegweiserData, normalizeWegweiserData, validateWegweiser } from '$lib/wegweiser';
+  import { normalizeWegweiserData, validateWegweiser } from '$lib/wegweiser';
   import type { WegweiserData, WegweiserDraftListItem, WegweiserOption } from '$lib/wegweiser';
 
   let {
@@ -15,36 +16,63 @@
     };
   } = $props();
 
-  function getInitialWegweiserData(): WegweiserData {
+  function getEmptyWegweiserData(): WegweiserData {
     return {
-      ...defaultWegweiserData,
+      farDestination: '',
+      farDistance: '',
       farPictograms: [],
       farRoutePictograms: [],
+      nearDestination: '',
+      nearDistance: '',
       nearPictograms: [],
       nearRoutePictograms: [],
-      routes: data.routeOptions.slice(0, 2).map((option) => ({
-        type: 'themenroute',
-        route: option.value
-      }))
+      direction: 'right',
+      routes: []
     };
   }
 
-  function getDefaultDraftTitle(wegweiser: WegweiserData) {
-    const parts = [wegweiser.farDestination.trim(), wegweiser.nearDestination.trim()].filter(Boolean);
+  function getSuggestedDraftTitle(wegweiser: WegweiserData): string {
+    const far = wegweiser.farDestination.trim();
+    const near = wegweiser.nearDestination.trim();
 
-    return parts.length ? parts.join(' / ') : 'Neuer Wegweiser-Entwurf';
+    if (far && near) {
+      return `${far} - ${near}`;
+    }
+
+    return far || near || '';
   }
 
-  const initialWegweiser = getInitialWegweiserData();
+  const initialWegweiser = getEmptyWegweiserData();
 
   let wegweiser = $state<WegweiserData>(initialWegweiser);
+  let currentDraftId = $state<string | null>(null);
   let selectedDraftId = $state('');
-  let entwurfTitel = $state(getDefaultDraftTitle(initialWegweiser));
+  let isDraftMenuOpen = $state(false);
+  let draftSearch = $state('');
+  let draftDeleteCandidateId = $state<string | null>(null);
+  let isDeletingDraft = $state(false);
+  let entwurfTitel = $state('');
+  let isDraftTitleManual = $state(false);
   let isSavingDraft = $state(false);
   let saveDraftMessage = $state<string | null>(null);
   let saveDraftError = $state<string | null>(null);
   let loadDraftError = $state<string | null>(null);
+  let deleteDraftError = $state<string | null>(null);
   const errors = $derived(validateWegweiser(wegweiser));
+  const filteredDrafts = $derived(
+    data.drafts.filter((draft) =>
+      draft.titel.toLowerCase().includes(draftSearch.trim().toLowerCase())
+    )
+  );
+  const selectedDraft = $derived(data.drafts.find((entry) => entry.id === selectedDraftId) ?? null);
+
+  $effect(() => {
+    if (currentDraftId || isDraftTitleManual) {
+      return;
+    }
+
+    entwurfTitel = getSuggestedDraftTitle(wegweiser);
+  });
 
   function formatDraftUpdated(value: string) {
     if (!value) {
@@ -67,6 +95,7 @@
     saveDraftMessage = null;
     saveDraftError = null;
     loadDraftError = null;
+    deleteDraftError = null;
 
     const draft = data.drafts.find((entry) => entry.id === selectedDraftId);
 
@@ -100,10 +129,13 @@
       return;
     }
 
-    const normalized = normalizeWegweiserData(parsedConfiguration, initialWegweiser);
+    const normalized = normalizeWegweiserData(parsedConfiguration, getEmptyWegweiserData());
 
     wegweiser = normalized.data;
     entwurfTitel = draft.titel;
+    isDraftTitleManual = true;
+    currentDraftId = draft.id;
+    isDraftMenuOpen = false;
     console.log('Entwurf laden: erfolgreich uebernommen', {
       draftId: draft.id,
       usedDefaults: normalized.usedDefaults,
@@ -111,7 +143,67 @@
     });
   }
 
-  async function saveDraft() {
+  function resetToNewDraft() {
+    wegweiser = getEmptyWegweiserData();
+    entwurfTitel = '';
+    isDraftTitleManual = false;
+    currentDraftId = null;
+    selectedDraftId = '';
+    draftSearch = '';
+    draftDeleteCandidateId = null;
+    isDraftMenuOpen = false;
+    saveDraftMessage = null;
+    saveDraftError = null;
+    loadDraftError = null;
+    deleteDraftError = null;
+  }
+
+  function toggleDraftMenu() {
+    isDraftMenuOpen = !isDraftMenuOpen;
+    draftDeleteCandidateId = null;
+    if (!isDraftMenuOpen) {
+      draftSearch = '';
+    }
+  }
+
+  function selectDraft(id: string) {
+    selectedDraftId = id;
+    draftDeleteCandidateId = null;
+  }
+
+  async function deleteDraft(id: string) {
+    deleteDraftError = null;
+    isDeletingDraft = true;
+
+    try {
+      const response = await fetch(`/api/entwuerfe/${id}`, {
+        method: 'DELETE'
+      });
+
+      const result = (await response.json()) as { message?: string };
+
+      if (!response.ok) {
+        deleteDraftError = result.message ?? 'Der Entwurf konnte nicht geloescht werden.';
+        return;
+      }
+
+      if (currentDraftId === id) {
+        resetToNewDraft();
+      } else if (selectedDraftId === id) {
+        selectedDraftId = '';
+      }
+
+      draftDeleteCandidateId = null;
+      await invalidateAll();
+    } catch (error) {
+      console.error('Entwurf konnte nicht geloescht werden.', error);
+      deleteDraftError = 'Der Entwurf konnte nicht geloescht werden.';
+    } finally {
+      isDeletingDraft = false;
+    }
+  }
+
+  async function saveDraft(forceNew = false) {
     saveDraftMessage = null;
     saveDraftError = null;
 
@@ -123,8 +215,11 @@
     isSavingDraft = true;
 
     try {
-      const response = await fetch('/api/entwuerfe', {
-        method: 'POST',
+      const isUpdate = Boolean(currentDraftId && !forceNew);
+      const endpoint = isUpdate ? `/api/entwuerfe/${currentDraftId}` : '/api/entwuerfe';
+      const method = isUpdate ? 'PATCH' : 'POST';
+      const response = await fetch(endpoint, {
+        method,
         headers: {
           'content-type': 'application/json'
         },
@@ -134,11 +229,18 @@
         })
       });
 
-      const result = (await response.json()) as { message?: string };
+      const result = (await response.json()) as { id?: string; message?: string };
 
       if (!response.ok) {
         saveDraftError = result.message ?? 'Der Entwurf konnte nicht gespeichert werden.';
         return;
+      }
+
+      await invalidateAll();
+
+      if (!isUpdate && result.id) {
+        currentDraftId = result.id;
+        selectedDraftId = result.id;
       }
 
       saveDraftMessage = result.message ?? 'Entwurf wurde gespeichert.';
@@ -172,12 +274,92 @@
       <div class="draft-load-panel">
         <label>
           <span>Entwurf laden</span>
-          <select bind:value={selectedDraftId}>
-            <option value="">Entwurf auswaehlen</option>
-            {#each data.drafts as draft}
-              <option value={draft.id}>{draft.titel} - {formatDraftUpdated(draft.updated)}</option>
-            {/each}
-          </select>
+          <div class="draft-picker">
+            <button
+              aria-expanded={isDraftMenuOpen}
+              class="draft-picker-toggle"
+              type="button"
+              onclick={toggleDraftMenu}
+            >
+              <span>
+                {#if selectedDraft}
+                  {selectedDraft.titel} - {formatDraftUpdated(selectedDraft.updated)}
+                {:else}
+                  Entwurf auswaehlen
+                {/if}
+              </span>
+              <span class="draft-picker-chevron">▾</span>
+            </button>
+
+            {#if isDraftMenuOpen}
+              <div class="draft-picker-menu">
+                <input
+                  bind:value={draftSearch}
+                  class="draft-picker-search"
+                  placeholder="Entwurf suchen"
+                  type="search"
+                />
+
+                <div class="draft-picker-list">
+                  {#if filteredDrafts.length}
+                    {#each filteredDrafts as draft}
+                      <div class="draft-picker-item">
+                        <button
+                          class:draft-picker-item-active={selectedDraftId === draft.id}
+                          class="draft-picker-select"
+                          type="button"
+                          onclick={() => selectDraft(draft.id)}
+                        >
+                          <strong>{draft.titel}</strong>
+                          <small>{formatDraftUpdated(draft.updated)}</small>
+                        </button>
+                        <button
+                          aria-label={`${draft.titel} loeschen`}
+                          class="draft-delete-trigger"
+                          type="button"
+                          onclick={(event) => {
+                            event.stopPropagation();
+                            draftDeleteCandidateId = draftDeleteCandidateId === draft.id ? null : draft.id;
+                          }}
+                        >
+                          ×
+                        </button>
+
+                        {#if draftDeleteCandidateId === draft.id}
+                          <div class="draft-delete-confirm">
+                            <p>Entwurf wirklich loeschen?</p>
+                            <div class="draft-delete-confirm-actions">
+                              <button
+                                type="button"
+                                onclick={(event) => {
+                                  event.stopPropagation();
+                                  draftDeleteCandidateId = null;
+                                }}
+                              >
+                                Abbrechen
+                              </button>
+                              <button
+                                disabled={isDeletingDraft}
+                                type="button"
+                                onclick={(event) => {
+                                  event.stopPropagation();
+                                  void deleteDraft(draft.id);
+                                }}
+                              >
+                                OK
+                              </button>
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
+                    {/each}
+                  {:else}
+                    <p class="draft-picker-empty">Keine passenden Entwuerfe gefunden.</p>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          </div>
         </label>
         <button
           class="button draft-load-button"
@@ -191,14 +373,33 @@
       {#if loadDraftError}
         <p class="form-error">{loadDraftError}</p>
       {/if}
+      {#if deleteDraftError}
+        <p class="form-error">{deleteDraftError}</p>
+      {/if}
       <div class="draft-save-panel">
         <label>
           <span>Entwurfstitel</span>
-          <input bind:value={entwurfTitel} placeholder="Neuer Wegweiser-Entwurf" type="text" />
+          <input
+            placeholder="Neuer Wegweiser-Entwurf"
+            type="text"
+            value={entwurfTitel}
+            oninput={(event) => {
+              entwurfTitel = event.currentTarget.value;
+              isDraftTitleManual = true;
+            }}
+          />
         </label>
-        <button class="button draft-save-button" disabled={isSavingDraft} type="button" onclick={saveDraft}>
-          {isSavingDraft ? 'Speichert...' : 'Entwurf speichern'}
-        </button>
+        <div class="draft-save-actions">
+          <button class="button draft-save-button" disabled={isSavingDraft} type="button" onclick={() => saveDraft(false)}>
+            {isSavingDraft ? 'Speichert...' : currentDraftId ? 'Entwurf aktualisieren' : 'Entwurf speichern'}
+          </button>
+          <button class="button draft-new-button" disabled={isSavingDraft} type="button" onclick={() => saveDraft(true)}>
+            Als neuen Entwurf speichern
+          </button>
+          <button class="button draft-reset-button" disabled={isSavingDraft} type="button" onclick={resetToNewDraft}>
+            Neuer Entwurf
+          </button>
+        </div>
       </div>
       {#if saveDraftMessage}
         <p class="form-success">{saveDraftMessage}</p>
@@ -219,6 +420,7 @@
       <h2>Wegweiser-Vorschau</h2>
       <WegweiserPreview
         data={wegweiser}
+        draftTitle={entwurfTitel}
         pictogramOptions={data.pictogramOptions}
         routeOptions={data.routeOptions}
       />

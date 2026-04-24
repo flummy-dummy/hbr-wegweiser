@@ -15,5 +15,6 @@
       Eingaben und eine SVG-Vorschau für HBR-Wegweiser.
     </p>
     <a class="button" href="/editor/test">Editor testen</a>
+    <a class="button secondary-button" href="/admin/themenrouten">Themenrouten verwalten</a>
   </section>
 </main>
