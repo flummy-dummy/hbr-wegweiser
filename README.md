@@ -86,3 +86,18 @@ Für externe Vorschau über `wegweiser.holbes.de` ist `preview.allowedHosts` ber
 - `src/routes/+page.svelte`: Startseite
 - `src/routes/editor/test/+page.svelte`: Editor-Testseite mit Formular und SVG-Vorschau
 - `static/`: statische Dateien wie das Favicon
+- `pocketbase/pb_migrations/`: PocketBase-JS-Migrationen für das Katastermodell
+
+## PocketBase-Migrationen
+
+Für das fachliche Beschilderungskataster liegen PocketBase-JS-Migrationen im selben Repository unter:
+
+- `pocketbase/pb_migrations/`
+
+Die Migrationen werden von der PocketBase-Binary ausgeführt, nicht von SvelteKit. Beispiel:
+
+```bash
+./pocketbase serve --dir ./pocketbase/pb_data --migrationsDir ./pocketbase/pb_migrations
+```
+
+`pb_data` ist lokale Laufzeitdatenbank und wird nicht versioniert. `pb_migrations` wird versioniert.

@@ -95,6 +95,9 @@ vite.config.ts.timestamp-*
 .next
 out
 
+# PocketBase runtime data
+pocketbase/pb_data/
+
 # Nuxt.js build / generate output
 .nuxt
 dist

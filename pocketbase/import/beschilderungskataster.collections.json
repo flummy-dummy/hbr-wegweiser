@@ -1,0 +1,475 @@
+{
+  "deleteMissing": false,
+  "collections": [
+    {
+      "id": "knoten000000001",
+      "name": "knoten",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_knoten_knoten_nr ON knoten (knoten_nr)"
+      ],
+      "fields": [
+        { "name": "knoten_nr", "type": "text", "required": true },
+        { "name": "bezeichnung", "type": "text", "required": false },
+        { "name": "beschreibung", "type": "text", "required": false },
+        { "name": "baulast", "type": "text", "required": false },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["bestand", "planung", "entfallen"]
+        },
+        {
+          "name": "geom_typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["Point"]
+        },
+        { "name": "geom_json", "type": "json", "required": false },
+        { "name": "x_utm", "type": "number", "required": false },
+        { "name": "y_utm", "type": "number", "required": false },
+        { "name": "lon", "type": "number", "required": false },
+        { "name": "lat", "type": "number", "required": false },
+        { "name": "bemerkung", "type": "text", "required": false },
+        { "name": "aktiv", "type": "bool", "required": false }
+      ]
+    },
+    {
+      "id": "pfosten0000001",
+      "name": "pfosten",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_pfosten_pfosten_nr ON pfosten (pfosten_nr)"
+      ],
+      "fields": [
+        {
+          "name": "knoten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "knoten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        { "name": "pfosten_nr", "type": "text", "required": true },
+        {
+          "name": "typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["pfosten", "laternenmast", "bestandsmast"]
+        },
+        {
+          "name": "material",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["metall", "holz", "sonstiges"]
+        },
+        {
+          "name": "bestand_status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["vorhanden", "geplant", "zu_entfernen"]
+        },
+        { "name": "bemerkung", "type": "text", "required": false },
+        {
+          "name": "geom_typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["Point"]
+        },
+        { "name": "geom_json", "type": "json", "required": false },
+        { "name": "lon", "type": "number", "required": false },
+        { "name": "lat", "type": "number", "required": false },
+        { "name": "aktiv", "type": "bool", "required": false }
+      ]
+    },
+    {
+      "id": "wegweiser000001",
+      "name": "wegweiser",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_wegweiser_wegweiser_nr ON wegweiser (wegweiser_nr)"
+      ],
+      "fields": [
+        {
+          "name": "pfosten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "pfosten0000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        { "name": "wegweiser_nr", "type": "text", "required": true },
+        {
+          "name": "wegweiser_typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["pfeil", "knotenpunktschild", "tabellenwegweiser", "zwischenwegweiser"]
+        },
+        {
+          "name": "bestand_status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["vorhanden", "geplant", "zu_entfernen", "ersetzt"]
+        },
+        {
+          "name": "ausrichtung",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["nord", "nordost", "ost", "suedost", "sued", "suedwest", "west", "nordwest"]
+        },
+        {
+          "name": "beschriftung",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["einseitig", "beidseitig"]
+        },
+        { "name": "breite_mm", "type": "number", "required": false },
+        { "name": "hoehe_mm", "type": "number", "required": false },
+        {
+          "name": "schildform",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["rechteck", "schwalbenschwanz", "pfeil"]
+        },
+        { "name": "bemerkung", "type": "text", "required": false },
+        { "name": "fernziel_text", "type": "text", "required": false },
+        { "name": "fernziel_entfernung", "type": "number", "required": false },
+        { "name": "nahziel_text", "type": "text", "required": false },
+        { "name": "nahziel_entfernung", "type": "number", "required": false },
+        { "name": "konfiguration_json", "type": "json", "required": false },
+        { "name": "aktiv", "type": "bool", "required": false }
+      ]
+    },
+    {
+      "id": "kanten000000001",
+      "name": "kanten",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_kanten_kanten_nr ON kanten (kanten_nr)"
+      ],
+      "fields": [
+        {
+          "name": "start_knoten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "knoten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        {
+          "name": "end_knoten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "knoten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        { "name": "kanten_nr", "type": "text", "required": true },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["bestand", "planung", "temporär", "entfallen"]
+        },
+        {
+          "name": "art",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["netzverbindung", "themenroute", "knotenpunktverbindung", "sonstige"]
+        },
+        {
+          "name": "geom_typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["LineString"]
+        },
+        { "name": "geom_json", "type": "json", "required": false },
+        { "name": "laenge_m", "type": "number", "required": false },
+        { "name": "darstellungsfarbe", "type": "text", "required": false },
+        {
+          "name": "linienstil",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["durchgezogen", "gestrichelt", "punktiert"]
+        },
+        { "name": "bemerkung", "type": "text", "required": false },
+        { "name": "aktiv", "type": "bool", "required": false }
+      ]
+    },
+    {
+      "id": "thmrouten000001",
+      "name": "themenrouten",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_themenrouten_slug ON themenrouten (slug)"
+      ],
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "slug", "type": "text", "required": true },
+        { "name": "kurzlabel", "type": "text", "required": false },
+        { "name": "beschreibung", "type": "text", "required": false },
+        { "name": "farbe_rahmen", "type": "text", "required": false },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["aktiv", "planung", "eingestellt"]
+        },
+        {
+          "name": "svg_datei",
+          "type": "file",
+          "required": false,
+          "maxSelect": 1,
+          "mimeTypes": ["image/svg+xml"]
+        },
+        {
+          "name": "png_datei",
+          "type": "file",
+          "required": false,
+          "maxSelect": 1,
+          "mimeTypes": ["image/png"]
+        },
+        { "name": "sortierung", "type": "number", "required": false },
+        { "name": "aktiv", "type": "bool", "required": false }
+      ]
+    },
+    {
+      "id": "thrkanten000001",
+      "name": "themenroute_kanten",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_themenroute_kanten_unique_pair ON themenroute_kanten (themenroute, kante)"
+      ],
+      "fields": [
+        {
+          "name": "themenroute",
+          "type": "relation",
+          "required": false,
+          "collectionId": "thmrouten000001",
+          "maxSelect": 1,
+          "cascadeDelete": true
+        },
+        {
+          "name": "kante",
+          "type": "relation",
+          "required": false,
+          "collectionId": "kanten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": true
+        },
+        { "name": "sortierung", "type": "number", "required": false },
+        {
+          "name": "richtungsbezug",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["beide", "hin", "rueck"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["bestand", "planung"]
+        }
+      ]
+    },
+    {
+      "id": "kpverb000000001",
+      "name": "knotenpunktverbindungen",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_knotenpunktverbindungen_verbindung_nr ON knotenpunktverbindungen (verbindung_nr)"
+      ],
+      "fields": [
+        { "name": "verbindung_nr", "type": "text", "required": true },
+        { "name": "bezeichnung", "type": "text", "required": false },
+        {
+          "name": "start_knoten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "knoten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        {
+          "name": "end_knoten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "knoten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        {
+          "name": "verbindungs_typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["knotenpunktnetz", "netzverbindung", "planung"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["bestand", "planung", "entfallen"]
+        },
+        { "name": "bemerkung", "type": "text", "required": false },
+        { "name": "aktiv", "type": "bool", "required": false }
+      ]
+    },
+    {
+      "id": "kpvkanten000001",
+      "name": "knotenpunktverbindung_kanten",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_knotenpunktverbindung_kanten_unique_pair ON knotenpunktverbindung_kanten (verbindung, kante)"
+      ],
+      "fields": [
+        {
+          "name": "verbindung",
+          "type": "relation",
+          "required": false,
+          "collectionId": "kpverb000000001",
+          "maxSelect": 1,
+          "cascadeDelete": true
+        },
+        {
+          "name": "kante",
+          "type": "relation",
+          "required": false,
+          "collectionId": "kanten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": true
+        },
+        { "name": "sortierung", "type": "number", "required": false }
+      ]
+    },
+    {
+      "id": "medien000000001",
+      "name": "medien",
+      "type": "base",
+      "system": false,
+      "listRule": null,
+      "viewRule": null,
+      "createRule": null,
+      "updateRule": null,
+      "deleteRule": null,
+      "indexes": [],
+      "fields": [
+        { "name": "titel", "type": "text", "required": true },
+        {
+          "name": "typ",
+          "type": "select",
+          "required": true,
+          "maxSelect": 1,
+          "values": ["standortfoto", "schildfoto", "planbild", "sonstiges"]
+        },
+        { "name": "beschreibung", "type": "text", "required": false },
+        {
+          "name": "datei",
+          "type": "file",
+          "required": false,
+          "maxSelect": 1,
+          "mimeTypes": [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/svg+xml",
+            "application/pdf"
+          ]
+        },
+        {
+          "name": "knoten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "knoten000000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        {
+          "name": "pfosten",
+          "type": "relation",
+          "required": false,
+          "collectionId": "pfosten0000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        {
+          "name": "wegweiser",
+          "type": "relation",
+          "required": false,
+          "collectionId": "wegweiser000001",
+          "maxSelect": 1,
+          "cascadeDelete": false
+        },
+        { "name": "aufnahmedatum", "type": "date", "required": false },
+        { "name": "fotograf", "type": "text", "required": false }
+      ]
+    }
+  ]
+}
