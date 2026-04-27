@@ -59,7 +59,14 @@ function mapKatasterRecord(
       status: stringField(record, ['status']),
       geomJson: parseGeomJson(record.geom_json),
       lon: numberField(record, 'lon'),
-      lat: numberField(record, 'lat')
+      lat: numberField(record, 'lat'),
+      formData: {
+        knotenNr: stringField(record, ['knoten_nr']),
+        bezeichnung: stringField(record, ['bezeichnung']),
+        bemerkung: stringField(record, ['bemerkung']),
+        aktiv: record.aktiv === true,
+        knotenpunktNr: numberField(record, 'knotenpunkt_nr')
+      }
     };
   }
 
@@ -84,7 +91,16 @@ function mapKatasterRecord(
     status: stringField(record, ['status']),
     geomJson: parseGeomJson(record.geom_json),
     lon: null,
-    lat: null
+    lat: null,
+    formData: {
+      kantenNr: stringField(record, ['kanten_nr']),
+      bemerkung: stringField(record, ['bemerkung']),
+      aktiv: record.aktiv === true,
+      kantenArt: stringField(record, ['art']),
+      kantenLinienstil: stringField(record, ['linienstil']),
+      startKnotenId: stringField(record, ['start_knoten']),
+      endKnotenId: stringField(record, ['end_knoten'])
+    }
   };
 }
 

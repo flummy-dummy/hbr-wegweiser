@@ -147,6 +147,35 @@ p {
   font-weight: 700;
 }
 
+.kataster-edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.kataster-mode-button-active {
+  background: #b45309;
+}
+
+.kataster-mode-button-active:hover {
+  background: #92400e;
+}
+
+.kataster-mode-hint {
+  color: #92400e;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.kataster-edit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
 .kataster-map-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -161,6 +190,24 @@ p {
   border-radius: 8px;
   background: #dbeafe;
   overflow: hidden;
+}
+
+.kataster-map-frame-creating {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+.kataster-map-mode-banner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(146, 64, 14, 0.92);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 700;
 }
 
 .kataster-map {
@@ -227,6 +274,48 @@ p {
   margin: 0;
   color: #18212f;
   font-size: 0.92rem;
+}
+
+.kataster-create-panel {
+  padding: 16px;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.kataster-hidden-form {
+  display: none;
+}
+
+.kataster-create-panel h2 {
+  margin-bottom: 12px;
+  font-size: 1.1rem;
+}
+
+.kataster-create-coordinates {
+  margin-bottom: 16px;
+  color: #516074;
+  font-size: 0.92rem;
+}
+
+.kataster-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.kataster-checkbox-field input {
+  width: 18px;
+  height: 18px;
+}
+
+.kataster-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .admin-grid {
@@ -1159,6 +1248,30 @@ p {
   margin-top: 0;
 }
 
+.danger-button {
+  margin-top: 0;
+  background: #c62828;
+}
+
+.danger-button:hover {
+  background: #9f1f1f;
+}
+
+.button-small {
+  height: 48px;
+  min-height: 48px;
+  padding: 0 12px;
+  font-size: 0.9rem;
+}
+
+.button-large {
+  height: 48px;
+  min-width: 170px;
+  min-height: 48px;
+  padding: 0 24px;
+  font-size: 1rem;
+}
+
 .svg-bike-symbol {
   fill: none;
   stroke: #d7001f;
@@ -1265,7 +1378,8 @@ p {
   .field-row.two-columns,
   .admin-route-item,
   .admin-route-meta,
-  .kataster-map-shell {
+  .kataster-map-shell,
+  .kataster-edit-layout {
     grid-template-columns: 1fr;
   }
 

@@ -30,6 +30,18 @@ export type KatasterMapRecord = {
   geomJson: GeoJsonGeometry | null;
   lon: number | null;
   lat: number | null;
+  formData?: {
+    knotenNr?: string;
+    bezeichnung?: string;
+    bemerkung?: string;
+    aktiv?: boolean;
+    knotenpunktNr?: number | null;
+    kantenNr?: string;
+    kantenArt?: string;
+    kantenLinienstil?: string;
+    startKnotenId?: string;
+    endKnotenId?: string;
+  };
 };
 
 export type KatasterFeatureInfo = {

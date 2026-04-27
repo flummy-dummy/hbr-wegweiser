@@ -47,7 +47,9 @@ export function createFeaturesFromRecords(records: KatasterMapRecord[]): Feature
       }
 
       const feature = new Feature({ geometry });
+      feature.setId(record.id);
       feature.setProperties({
+        id: record.id,
         collection: record.collection,
         title: record.title,
         subtitle: record.subtitle ?? '',
