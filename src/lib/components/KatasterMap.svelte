@@ -632,15 +632,29 @@
           return;
         }
 
-        const clickedKnoten = map.forEachFeatureAtPixel(event.pixel, (candidate) => {
-          if (!(candidate instanceof Feature)) {
-            return null;
+        const clickedEndpointVertex = map.forEachFeatureAtPixel(
+          event.pixel,
+          (candidate) => {
+            if (!(candidate instanceof Feature)) {
+              return null;
+            }
+
+            const vertexIndex = candidate.get('vertexIndex');
+
+            if (typeof vertexIndex !== 'number' || !edgeDraft) {
+              return null;
+            }
+
+            return vertexIndex === 0 || vertexIndex === edgeDraft.coordinates.length - 1
+              ? (candidate as Feature<Geometry>)
+              : null;
+          },
+          {
+            hitTolerance: 12
           }
+        );
 
-          return candidate.get('collection') === 'knoten' ? (candidate as Feature<Geometry>) : null;
-        });
-
-        if (!clickedKnoten) {
+        if (!clickedEndpointVertex) {
           return;
         }
 

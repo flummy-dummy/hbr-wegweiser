@@ -743,5 +743,116 @@ export const actions: Actions = {
         values: Object.fromEntries(values)
       });
     }
+  },
+
+  deleteKnoten: async ({ request }) => {
+    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
+      console.error('PocketBase-Admin-Authentifizierung fuer Knoten fehlgeschlagen.', error);
+      return null;
+    });
+
+    if (!pbAdmin) {
+      return fail(503, {
+        success: false,
+        action: 'deleteKnoten',
+        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
+      });
+    }
+
+    const values = await request.formData();
+    const id = formValue(values, 'id');
+
+    if (!id) {
+      return fail(400, {
+        success: false,
+        action: 'deleteKnoten',
+        message: 'Die Knoten-ID fehlt.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      const relatedKanten = await pbAdmin.collection('kanten').getFullList<RecordModel>({
+        sort: 'kanten_nr'
+      });
+
+      const connectedKanten = relatedKanten.filter((kante) => {
+        const startKnoten = relationFieldValue(kante, 'start_knoten');
+        const endKnoten = relationFieldValue(kante, 'end_knoten');
+        return startKnoten === id || endKnoten === id;
+      });
+
+      if (connectedKanten.length > 0) {
+        return fail(400, {
+          success: false,
+          action: 'deleteKnoten',
+          message: 'Knoten kann nicht geloescht werden, solange noch verbundene Kanten existieren.',
+          values: Object.fromEntries(values)
+        });
+      }
+
+      await pbAdmin.collection('knoten').delete(id);
+
+      return {
+        success: true,
+        action: 'deleteKnoten',
+        message: 'Knoten wurde geloescht.'
+      };
+    } catch (error) {
+      console.error('Knoten konnte nicht geloescht werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'deleteKnoten',
+        message: 'Knoten konnte nicht geloescht werden.',
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
+  deleteKante: async ({ request }) => {
+    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
+      console.error('PocketBase-Admin-Authentifizierung fuer Kanten fehlgeschlagen.', error);
+      return null;
+    });
+
+    if (!pbAdmin) {
+      return fail(503, {
+        success: false,
+        action: 'deleteKante',
+        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
+      });
+    }
+
+    const values = await request.formData();
+    const id = formValue(values, 'id');
+
+    if (!id) {
+      return fail(400, {
+        success: false,
+        action: 'deleteKante',
+        message: 'Die Kanten-ID fehlt.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      await pbAdmin.collection('kanten').delete(id);
+
+      return {
+        success: true,
+        action: 'deleteKante',
+        message: 'Kante wurde geloescht.'
+      };
+    } catch (error) {
+      console.error('Kante konnte nicht geloescht werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'deleteKante',
+        message: 'Kante konnte nicht geloescht werden.',
+        values: Object.fromEntries(values)
+      });
+    }
   }
 };

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import KatasterMap from '$lib/components/KatasterMap.svelte';
   import type { GeoJsonGeometry, KatasterMapRecord } from '$lib/kataster';
 
@@ -127,7 +128,7 @@
   }
 
   function formValues() {
-    return form?.action === 'createKnoten' || form?.action === 'updateKnoten' || form?.action === 'createKante' || form?.action === 'updateKante'
+    return form?.action === 'createKnoten' || form?.action === 'updateKnoten' || form?.action === 'createKante' || form?.action === 'updateKante' || form?.action === 'deleteKnoten' || form?.action === 'deleteKante'
       ? form.values
       : undefined;
   }
@@ -146,6 +147,14 @@
     }
 
     if (form?.action === 'updateKante') {
+      return 'edit-edge';
+    }
+
+    if (form?.action === 'deleteKnoten') {
+      return 'edit';
+    }
+
+    if (form?.action === 'deleteKante') {
       return 'edit-edge';
     }
 
@@ -601,6 +610,7 @@
               method="POST"
               action={draftMode === 'create-edge' ? '?/createKante' : '?/updateKante'}
               class="admin-form"
+              use:enhance
             >
               {#if draftMode === 'edit-edge'}
                 <input type="hidden" name="id" value={edgeDraft?.edgeId ?? ''} />
@@ -664,7 +674,21 @@
                 </button>
               </div>
 
-              <div class="kataster-create-actions">
+              {#if draftMode === 'edit-edge'}
+                <div class="kataster-create-actions">
+                  <button
+                    class="button danger-button"
+                    type="submit"
+                    formaction="?/deleteKante"
+                    name="id"
+                    value={edgeDraft?.edgeId ?? ''}
+                  >
+                    Kante loeschen
+                  </button>
+                </div>
+              {/if}
+
+              <div class="kataster-create-actions kataster-create-actions-primary">
                 <button class="button danger-button button-small" type="button" onclick={cancelDraft}>
                   Abbrechen
                 </button>
@@ -692,6 +716,7 @@
               method="POST"
               action={draftMode === 'create' ? '?/createKnoten' : '?/updateKnoten'}
               class="admin-form"
+              use:enhance
             >
               {#if draftMode === 'edit'}
                 <input type="hidden" name="id" value={editingKnotenId} />
@@ -740,7 +765,21 @@
                 <span>Aktiv</span>
               </label>
 
-              <div class="kataster-create-actions">
+              {#if draftMode === 'edit'}
+                <div class="kataster-create-actions">
+                  <button
+                    class="button danger-button"
+                    type="submit"
+                    formaction="?/deleteKnoten"
+                    name="id"
+                    value={editingKnotenId}
+                  >
+                    Knoten loeschen
+                  </button>
+                </div>
+              {/if}
+
+              <div class="kataster-create-actions kataster-create-actions-primary">
                 <button class="button danger-button button-small" type="button" onclick={cancelDraft}>
                   Abbrechen
                 </button>
