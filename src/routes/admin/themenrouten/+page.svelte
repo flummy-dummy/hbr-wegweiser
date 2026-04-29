@@ -4,6 +4,7 @@
     name: string;
     kurzlabel: string;
     slug: string;
+    status: string;
     beschreibung: string;
     aktiv: boolean;
     sortierung: number | null;
@@ -108,6 +109,15 @@
         </div>
 
         <label class="field">
+          <span>Status</span>
+          <select name="status" required value={getStringValue('status') || 'aktiv'}>
+            <option value="aktiv">aktiv</option>
+            <option value="planung">planung</option>
+            <option value="eingestellt">eingestellt</option>
+          </select>
+        </label>
+
+        <label class="field">
           <span>Beschreibung</span>
           <textarea name="beschreibung" rows="4">{getStringValue('beschreibung')}</textarea>
         </label>
@@ -166,6 +176,10 @@
                   <div>
                     <dt>Sortierung</dt>
                     <dd>{route.sortierung ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{route.status || '—'}</dd>
                   </div>
                   <div>
                     <dt>Datei</dt>
@@ -235,6 +249,15 @@
                         />
                       </label>
                     </div>
+
+                    <label class="field">
+                      <span>Status</span>
+                      <select name="status" required value={getEditStringValue(route, 'status')}>
+                        <option value="aktiv">aktiv</option>
+                        <option value="planung">planung</option>
+                        <option value="eingestellt">eingestellt</option>
+                      </select>
+                    </label>
 
                     <label class="field">
                       <span>Beschreibung</span>

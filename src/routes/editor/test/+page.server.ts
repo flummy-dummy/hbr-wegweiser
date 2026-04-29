@@ -1,7 +1,6 @@
 import { pictogramOptions, routeOptions } from '$lib/wegweiser';
 import type { WegweiserDraftListItem } from '$lib/wegweiser';
-import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
-import { createPocketBaseClient, getPocketBaseFileUrl } from '$lib/server/pocketbase';
+import { getPocketBaseFileUrl } from '$lib/server/pocketbase';
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 
@@ -57,12 +56,9 @@ function mapDraft(record: RecordModel): WegweiserDraftListItem {
   };
 }
 
-export async function load() {
-  const pb = createPocketBaseClient();
-  const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-    console.error('PocketBase-Admin-Zugang fuer Entwuerfe konnte nicht initialisiert werden.', error);
-    return null;
-  });
+export async function load({ locals }: { locals: App.Locals }) {
+  const pb = locals.pb;
+  const pbAdmin = locals.pb;
 
   if (!pb) {
     return {

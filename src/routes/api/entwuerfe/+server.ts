@@ -1,9 +1,8 @@
-import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
 import { createDraftRecordData, parseDraftPayload } from '$lib/server/draft-record';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
   let payload: unknown;
 
   try {
@@ -18,10 +17,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ message: 'Die Wegweiser-Konfiguration ist unvollstaendig.' }, { status: 400 });
   }
 
-  const pb = await createPocketBaseAdminClient().catch((error) => {
-    console.error('PocketBase-Admin-Authentifizierung fehlgeschlagen.', error);
-    return null;
-  });
+  const pb = locals.pb;
 
   if (!pb) {
     return json(

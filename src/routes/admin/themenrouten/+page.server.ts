@@ -1,4 +1,4 @@
-import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
+import { ensurePermission } from '$lib/server/auth';
 import { getPocketBaseFileUrl } from '$lib/server/pocketbase';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -10,6 +10,7 @@ type ThemenrouteAdminItem = {
   name: string;
   kurzlabel: string;
   slug: string;
+  status: string;
   beschreibung: string;
   aktiv: boolean;
   sortierung: number | null;
@@ -65,6 +66,7 @@ function mapThemenroute(pb: PocketBase, record: RecordModel): ThemenrouteAdminIt
     name: stringField(record, ['name'], 'Ohne Namen'),
     kurzlabel: stringField(record, ['kurzlabel']),
     slug: stringField(record, ['slug']),
+    status: stringField(record, ['status'], 'aktiv'),
     beschreibung: stringField(record, ['beschreibung']),
     aktiv: booleanField(record, 'aktiv'),
     sortierung: numberField(record, 'sortierung'),
@@ -78,11 +80,45 @@ function formValue(values: FormData, field: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export const load: PageServerLoad = async () => {
-  const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-    console.error('PocketBase-Admin-Zugang fuer Themenrouten konnte nicht initialisiert werden.', error);
-    return null;
-  });
+function isValidThemenrouteStatus(value: string): boolean {
+  return value === 'aktiv' || value === 'planung' || value === 'eingestellt';
+}
+
+function pocketBaseErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = (error as { response?: { data?: Record<string, { message?: string }>; message?: string } })
+      .response;
+
+    const fieldMessages = Object.entries(response?.data ?? {})
+      .map(([field, details]) => {
+        const message = details?.message;
+        return typeof message === 'string' && message.trim() ? `${field}: ${message}` : null;
+      })
+      .filter((value): value is string => Boolean(value));
+
+    if (fieldMessages.length) {
+      return fieldMessages.join(' ');
+    }
+
+    if (typeof response?.message === 'string' && response.message.trim()) {
+      return response.message;
+    }
+  }
+
+  return fallback;
+}
+
+function serializableFormValues(values: FormData): Record<string, FormDataEntryValue> {
+  return Object.fromEntries(
+    Array.from(values.entries()).map(([key, value]) => [
+      key,
+      value instanceof File ? value.name : value
+    ])
+  );
+}
+
+export const load: PageServerLoad = async ({ locals }) => {
+  const pbAdmin = locals.pb;
 
   if (!pbAdmin) {
     return {
@@ -112,35 +148,43 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-  create: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Themenrouten fehlgeschlagen.', error);
-      return null;
-    });
+  create: async (event) => {
+    ensurePermission(event, 'edit');
+    const pbAdmin = event.locals.pb;
 
     if (!pbAdmin) {
       return fail(503, {
         success: false,
         action: 'create',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
+        message: 'PocketBase ist nicht konfiguriert oder nicht erreichbar.'
       });
     }
 
-    const values = await request.formData();
+    const values = await event.request.formData();
     const name = formValue(values, 'name');
     const slug = formValue(values, 'slug');
     const kurzlabel = formValue(values, 'kurzlabel');
+    const status = formValue(values, 'status');
     const beschreibung = formValue(values, 'beschreibung');
     const sortierungRaw = formValue(values, 'sortierung');
     const aktiv = values.get('aktiv') === 'on';
     const datei = values.get('datei');
 
-    if (!name || !slug || !kurzlabel) {
+    if (!name || !slug || !kurzlabel || !status) {
       return fail(400, {
         success: false,
         action: 'create',
-        message: 'Name, Slug und Kurzlabel sind erforderlich.',
-        values: Object.fromEntries(values)
+        message: 'Name, Slug, Kurzlabel und Status sind erforderlich.',
+        values: serializableFormValues(values)
+      });
+    }
+
+    if (!isValidThemenrouteStatus(status)) {
+      return fail(400, {
+        success: false,
+        action: 'create',
+        message: 'Status muss aktiv, planung oder eingestellt sein.',
+        values: serializableFormValues(values)
       });
     }
 
@@ -149,7 +193,7 @@ export const actions: Actions = {
         success: false,
         action: 'create',
         message: 'Bitte eine SVG- oder PNG-Datei auswaehlen.',
-        values: Object.fromEntries(values)
+        values: serializableFormValues(values)
       });
     }
 
@@ -163,7 +207,7 @@ export const actions: Actions = {
         success: false,
         action: 'create',
         message: 'Es werden nur SVG- und PNG-Dateien unterstuetzt.',
-        values: Object.fromEntries(values)
+        values: serializableFormValues(values)
       });
     }
 
@@ -177,7 +221,7 @@ export const actions: Actions = {
           success: false,
           action: 'create',
           message: 'Sortierung muss eine gueltige Zahl sein.',
-          values: Object.fromEntries(values)
+          values: serializableFormValues(values)
         });
       }
     }
@@ -186,6 +230,7 @@ export const actions: Actions = {
     payload.set('name', name);
     payload.set('slug', slug);
     payload.set('kurzlabel', kurzlabel);
+    payload.set('status', status);
     payload.set('beschreibung', beschreibung);
     payload.set('aktiv', aktiv ? 'true' : 'false');
 
@@ -206,45 +251,53 @@ export const actions: Actions = {
     } catch (error) {
       console.error('Themenroute konnte nicht gespeichert werden.', error);
 
-      return fail(500, {
+      return fail(400, {
         success: false,
         action: 'create',
-        message: 'Themenroute konnte nicht gespeichert werden.',
-        values: Object.fromEntries(values)
+        message: pocketBaseErrorMessage(error, 'Themenroute konnte nicht gespeichert werden.'),
+        values: serializableFormValues(values)
       });
     }
   },
 
-  update: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Themenrouten fehlgeschlagen.', error);
-      return null;
-    });
+  update: async (event) => {
+    ensurePermission(event, 'edit');
+    const pbAdmin = event.locals.pb;
 
     if (!pbAdmin) {
       return fail(503, {
         success: false,
         action: 'update',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
+        message: 'PocketBase ist nicht konfiguriert oder nicht erreichbar.'
       });
     }
 
-    const values = await request.formData();
+    const values = await event.request.formData();
     const id = formValue(values, 'id');
     const name = formValue(values, 'name');
     const slug = formValue(values, 'slug');
     const kurzlabel = formValue(values, 'kurzlabel');
+    const status = formValue(values, 'status');
     const beschreibung = formValue(values, 'beschreibung');
     const sortierungRaw = formValue(values, 'sortierung');
     const aktiv = values.get('aktiv') === 'on';
     const datei = values.get('datei');
 
-    if (!id || !name || !slug || !kurzlabel) {
+    if (!id || !name || !slug || !kurzlabel || !status) {
       return fail(400, {
         success: false,
         action: 'update',
-        message: 'ID, Name, Slug und Kurzlabel sind erforderlich.',
-        values: Object.fromEntries(values)
+        message: 'ID, Name, Slug, Kurzlabel und Status sind erforderlich.',
+        values: serializableFormValues(values)
+      });
+    }
+
+    if (!isValidThemenrouteStatus(status)) {
+      return fail(400, {
+        success: false,
+        action: 'update',
+        message: 'Status muss aktiv, planung oder eingestellt sein.',
+        values: serializableFormValues(values)
       });
     }
 
@@ -258,7 +311,7 @@ export const actions: Actions = {
           success: false,
           action: 'update',
           message: 'Sortierung muss eine gueltige Zahl sein.',
-          values: Object.fromEntries(values)
+          values: serializableFormValues(values)
         });
       }
     }
@@ -267,6 +320,7 @@ export const actions: Actions = {
     payload.set('name', name);
     payload.set('slug', slug);
     payload.set('kurzlabel', kurzlabel);
+    payload.set('status', status);
     payload.set('beschreibung', beschreibung);
     payload.set('aktiv', aktiv ? 'true' : 'false');
     if (sortierung !== null) {
@@ -286,7 +340,7 @@ export const actions: Actions = {
           success: false,
           action: 'update',
           message: 'Es werden nur SVG- und PNG-Dateien unterstuetzt.',
-          values: Object.fromEntries(values)
+          values: serializableFormValues(values)
         });
       }
 
@@ -305,30 +359,28 @@ export const actions: Actions = {
     } catch (error) {
       console.error('Themenroute konnte nicht aktualisiert werden.', error);
 
-      return fail(500, {
+      return fail(400, {
         success: false,
         action: 'update',
-        message: 'Themenroute konnte nicht aktualisiert werden.',
-        values: Object.fromEntries(values)
+        message: pocketBaseErrorMessage(error, 'Themenroute konnte nicht aktualisiert werden.'),
+        values: serializableFormValues(values)
       });
     }
   },
 
-  delete: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Themenrouten fehlgeschlagen.', error);
-      return null;
-    });
+  delete: async (event) => {
+    ensurePermission(event, 'edit');
+    const pbAdmin = event.locals.pb;
 
     if (!pbAdmin) {
       return fail(503, {
         success: false,
         action: 'delete',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
+        message: 'PocketBase ist nicht konfiguriert oder nicht erreichbar.'
       });
     }
 
-    const values = await request.formData();
+    const values = await event.request.formData();
     const id = formValue(values, 'id');
 
     if (!id) {

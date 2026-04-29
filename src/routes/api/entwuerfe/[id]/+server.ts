@@ -1,9 +1,8 @@
 import { createDraftRecordData, parseDraftPayload } from '$lib/server/draft-record';
-import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-export const PATCH: RequestHandler = async ({ params, request }) => {
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   const id = params.id?.trim();
 
   if (!id) {
@@ -24,10 +23,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     return json({ message: 'Die Wegweiser-Konfiguration ist unvollstaendig.' }, { status: 400 });
   }
 
-  const pb = await createPocketBaseAdminClient().catch((error) => {
-    console.error('PocketBase-Admin-Authentifizierung fehlgeschlagen.', error);
-    return null;
-  });
+  const pb = locals.pb;
 
   if (!pb) {
     return json(
@@ -59,17 +55,14 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   }
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, locals }) => {
   const id = params.id?.trim();
 
   if (!id) {
     return json({ message: 'Es wurde keine Entwurfs-ID uebergeben.' }, { status: 400 });
   }
 
-  const pb = await createPocketBaseAdminClient().catch((error) => {
-    console.error('PocketBase-Admin-Authentifizierung fehlgeschlagen.', error);
-    return null;
-  });
+  const pb = locals.pb;
 
   if (!pb) {
     return json(

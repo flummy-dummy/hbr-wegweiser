@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { applyAction, enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
+  import { page } from '$app/state';
   import KatasterMap from '$lib/components/KatasterMap.svelte';
   import type { GeoJsonGeometry, KatasterMapRecord } from '$lib/kataster';
+  import type { SubmitFunction } from '@sveltejs/kit';
 
   type DraftPoint = {
     lon: number;
@@ -55,6 +58,28 @@
 
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function knotenpunktFieldValue(value: unknown): string {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 99) {
+      return String(value);
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+
+      if (!trimmed) {
+        return '';
+      }
+
+      const parsed = Number(trimmed);
+
+      if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 99) {
+        return trimmed;
+      }
+    }
+
+    return '';
   }
 
   function parseCoordinatesJson(raw: string): DraftPoint[] {
@@ -247,10 +272,22 @@
   let knotenNr = $state(stringValue(initialValues, 'knoten_nr'));
   let bezeichnung = $state(stringValue(initialValues, 'bezeichnung'));
   let status = $state(stringValue(initialValues, 'status') || 'bestand');
-  let knotenpunktNr = $state(stringValue(initialValues, 'knotenpunkt_nr'));
+  let knotenpunktNr = $state(knotenpunktFieldValue(initialValues?.knotenpunkt_nr));
   let bemerkung = $state(stringValue(initialValues, 'bemerkung'));
   let aktiv = $state(stringValue(initialValues, 'aktiv') === 'on');
   let edgeEditFormElement = $state<HTMLFormElement | null>(null);
+  const canEdit = $derived(page.data.auth?.canEdit === true);
+
+  const closeDraftOnSuccess: SubmitFunction = () => {
+    return async ({ result }) => {
+      await applyAction(result);
+
+      if (result.type === 'success') {
+        await invalidateAll();
+        cancelDraft();
+      }
+    };
+  };
 
   function resetFormFields() {
     editingKnotenId = '';
@@ -273,6 +310,10 @@
   }
 
   function startCreationMode() {
+    if (!canEdit) {
+      return;
+    }
+
     draftMode = 'create';
     draftPoint = null;
     resetEdgeDraft();
@@ -280,6 +321,10 @@
   }
 
   function startEdgeCreationMode() {
+    if (!canEdit) {
+      return;
+    }
+
     draftMode = 'create-edge';
     draftPoint = null;
     resetEdgeDraft();
@@ -298,6 +343,10 @@
   }
 
   function handleEditKnotenSelect(knotenId: string) {
+    if (!canEdit) {
+      return;
+    }
+
     if (draftMode === 'create-edge' || draftMode === 'edit-edge') {
       return;
     }
@@ -318,9 +367,7 @@
     knotenNr = knoten.formData?.knotenNr ?? knoten.subtitle ?? '';
     bezeichnung = knoten.formData?.bezeichnung ?? '';
     status = knoten.status || 'bestand';
-    knotenpunktNr = knoten.formData?.knotenpunktNr !== null && knoten.formData?.knotenpunktNr !== undefined
-      ? String(knoten.formData.knotenpunktNr)
-      : '';
+    knotenpunktNr = knotenpunktFieldValue(knoten.formData?.knotenpunktNr);
     bemerkung = knoten.formData?.bemerkung ?? '';
     aktiv = knoten.formData?.aktiv === true;
   }
@@ -341,7 +388,7 @@
   }
 
   function handleEdgeNodeSelect(knotenId: string) {
-    if (draftMode !== 'create-edge') {
+    if (!canEdit || draftMode !== 'create-edge') {
       return;
     }
 
@@ -395,7 +442,7 @@
   }
 
   function handleEdgeFeatureSelect(kanteId: string) {
-    if (draftMode === 'create-edge') {
+    if (!canEdit || draftMode === 'create-edge') {
       return;
     }
 
@@ -491,11 +538,22 @@
   function requestEdgeSave() {
     edgeEditFormElement?.requestSubmit();
   }
+
+  function handleWindowKeyDown(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || draftMode === 'none') {
+      return;
+    }
+
+    event.preventDefault();
+    cancelDraft();
+  }
 </script>
 
 <svelte:head>
   <title>Katasterkarte | HBR-Wegweiser-Generator</title>
 </svelte:head>
+
+<svelte:window onkeydown={handleWindowKeyDown} />
 
 <main class="page kataster-page">
   <header class="editor-header">
@@ -524,26 +582,30 @@
     </div>
 
     <div class="kataster-edit-toolbar">
-      <button
-        type="button"
-        class:secondary-button={draftMode !== 'create'}
-        class:kataster-mode-button-active={draftMode === 'create'}
-        class="button"
-        onclick={startCreationMode}
-      >
-        Knoten setzen
-      </button>
-      <button
-        type="button"
-        class:secondary-button={draftMode !== 'create-edge'}
-        class:kataster-mode-button-active={draftMode === 'create-edge'}
-        class="button"
-        onclick={startEdgeCreationMode}
-      >
-        Kante erstellen
-      </button>
+      {#if canEdit}
+        <button
+          type="button"
+          class:secondary-button={draftMode !== 'create'}
+          class:kataster-mode-button-active={draftMode === 'create'}
+          class="button"
+          onclick={startCreationMode}
+        >
+          Knoten setzen
+        </button>
+        <button
+          type="button"
+          class:secondary-button={draftMode !== 'create-edge'}
+          class:kataster-mode-button-active={draftMode === 'create-edge'}
+          class="button"
+          onclick={startEdgeCreationMode}
+        >
+          Kante erstellen
+        </button>
+      {/if}
 
-      {#if draftMode === 'create'}
+      {#if !canEdit}
+        <span class="kataster-mode-hint">Nur Lesezugriff. Karte sichtbar, Bearbeitung gesperrt.</span>
+      {:else if draftMode === 'create'}
         <span class="kataster-mode-hint">
           {#if draftPoint}
             Punkt gesetzt. Formular ausfuellen oder mit einem neuen Kartenklick verschieben.
@@ -610,7 +672,7 @@
               method="POST"
               action={draftMode === 'create-edge' ? '?/createKante' : '?/updateKante'}
               class="admin-form"
-              use:enhance
+              use:enhance={closeDraftOnSuccess}
             >
               {#if draftMode === 'edit-edge'}
                 <input type="hidden" name="id" value={edgeDraft?.edgeId ?? ''} />
@@ -716,7 +778,7 @@
               method="POST"
               action={draftMode === 'create' ? '?/createKnoten' : '?/updateKnoten'}
               class="admin-form"
-              use:enhance
+              use:enhance={closeDraftOnSuccess}
             >
               {#if draftMode === 'edit'}
                 <input type="hidden" name="id" value={editingKnotenId} />
@@ -747,10 +809,10 @@
                 <span>Knotenpunkt-Nr.</span>
                 <input
                   name="knotenpunkt_nr"
-                  type="number"
-                  min="1"
-                  max="99"
-                  step="1"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="optional, 1-99"
                   bind:value={knotenpunktNr}
                 />
               </label>

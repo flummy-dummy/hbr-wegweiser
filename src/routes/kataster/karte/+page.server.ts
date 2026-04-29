@@ -1,13 +1,13 @@
-import { createPocketBaseAdminClient } from '$lib/server/pocketbase-admin';
+import { ensurePermission } from '$lib/server/auth';
 import { loadKatasterMapData } from '$lib/server/kataster';
-import { fail } from '@sveltejs/kit';
-import type { RecordModel } from 'pocketbase';
+import { error, fail } from '@sveltejs/kit';
+import PocketBase, { type RecordModel } from 'pocketbase';
 import type { Actions, PageServerLoad } from './$types';
 
-type PocketBaseAdminClient = NonNullable<Awaited<ReturnType<typeof createPocketBaseAdminClient>>>;
+type PocketBaseClient = PocketBase;
 
-export const load: PageServerLoad = async () => {
-  return await loadKatasterMapData();
+export const load: PageServerLoad = async ({ locals }) => {
+  return await loadKatasterMapData(locals.pb);
 };
 
 function formValue(values: FormData, field: string): string {
@@ -124,7 +124,7 @@ function getLineStringCoordinates(record: RecordModel): [number, number][] | nul
 }
 
 async function syncConnectedKantenForMovedKnoten(
-  pbAdmin: PocketBaseAdminClient,
+  pbAdmin: PocketBaseClient,
   knotenId: string,
   lon: number,
   lat: number
@@ -183,7 +183,7 @@ async function syncConnectedKantenForMovedKnoten(
 }
 
 async function updateKnotenGeometry(
-  pbAdmin: PocketBaseAdminClient,
+  pbAdmin: PocketBaseClient,
   knotenId: string,
   lon: number,
   lat: number
@@ -199,6 +199,16 @@ async function updateKnotenGeometry(
   });
 
   await syncConnectedKantenForMovedKnoten(pbAdmin, knotenId, lon, lat);
+}
+
+function getAuthorizedPocketBase(event: Parameters<Actions[keyof Actions]>[0], permission: 'edit' | 'delete') {
+  ensurePermission(event, permission);
+
+  if (!event.locals.pb) {
+    throw error(503, 'PocketBase ist nicht konfiguriert oder aktuell nicht erreichbar.');
+  }
+
+  return event.locals.pb;
 }
 
 function mapKnotenRecord(record: RecordModel) {
@@ -223,21 +233,9 @@ function mapKnotenRecord(record: RecordModel) {
 }
 
 export const actions: Actions = {
-  createKnoten: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Knoten fehlgeschlagen.', error);
-      return null;
-    });
-
-    if (!pbAdmin) {
-      return fail(503, {
-        success: false,
-        action: 'createKnoten',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
-      });
-    }
-
-    const values = await request.formData();
+  createKnoten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
     const knotenNr = formValue(values, 'knoten_nr');
     const bezeichnung = formValue(values, 'bezeichnung');
     const status = formValue(values, 'status');
@@ -334,21 +332,9 @@ export const actions: Actions = {
     }
   },
 
-  updateKnoten: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Knoten fehlgeschlagen.', error);
-      return null;
-    });
-
-    if (!pbAdmin) {
-      return fail(503, {
-        success: false,
-        action: 'updateKnoten',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
-      });
-    }
-
-    const values = await request.formData();
+  updateKnoten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
     const id = formValue(values, 'id');
     const knotenNr = formValue(values, 'knoten_nr');
     const bezeichnung = formValue(values, 'bezeichnung');
@@ -456,21 +442,9 @@ export const actions: Actions = {
     }
   },
 
-  createKante: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Kanten fehlgeschlagen.', error);
-      return null;
-    });
-
-    if (!pbAdmin) {
-      return fail(503, {
-        success: false,
-        action: 'createKante',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
-      });
-    }
-
-    const values = await request.formData();
+  createKante: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
     const startKnotenId = formValue(values, 'start_knoten');
     const endKnotenId = formValue(values, 'end_knoten');
     const kantenNr = formValue(values, 'kanten_nr');
@@ -575,21 +549,9 @@ export const actions: Actions = {
     }
   },
 
-  updateKante: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Kanten fehlgeschlagen.', error);
-      return null;
-    });
-
-    if (!pbAdmin) {
-      return fail(503, {
-        success: false,
-        action: 'updateKante',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
-      });
-    }
-
-    const values = await request.formData();
+  updateKante: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
     const id = formValue(values, 'id');
     const startKnotenId = formValue(values, 'start_knoten');
     const endKnotenId = formValue(values, 'end_knoten');
@@ -745,21 +707,9 @@ export const actions: Actions = {
     }
   },
 
-  deleteKnoten: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Knoten fehlgeschlagen.', error);
-      return null;
-    });
-
-    if (!pbAdmin) {
-      return fail(503, {
-        success: false,
-        action: 'deleteKnoten',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
-      });
-    }
-
-    const values = await request.formData();
+  deleteKnoten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'delete');
+    const values = await event.request.formData();
     const id = formValue(values, 'id');
 
     if (!id) {
@@ -810,21 +760,9 @@ export const actions: Actions = {
     }
   },
 
-  deleteKante: async ({ request }) => {
-    const pbAdmin = await createPocketBaseAdminClient().catch((error) => {
-      console.error('PocketBase-Admin-Authentifizierung fuer Kanten fehlgeschlagen.', error);
-      return null;
-    });
-
-    if (!pbAdmin) {
-      return fail(503, {
-        success: false,
-        action: 'deleteKante',
-        message: 'PocketBase-Admin-Zugang ist nicht konfiguriert oder nicht erreichbar.'
-      });
-    }
-
-    const values = await request.formData();
+  deleteKante: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'delete');
+    const values = await event.request.formData();
     const id = formValue(values, 'id');
 
     if (!id) {

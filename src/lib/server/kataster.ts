@@ -1,5 +1,6 @@
 import { createPocketBaseClient } from '$lib/server/pocketbase';
 import type { GeoJsonGeometry, KatasterCollectionType, KatasterMapRecord } from '$lib/kataster';
+import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 
 function stringField(record: RecordModel, fields: string[], fallback = ''): string {
@@ -104,7 +105,7 @@ function mapKatasterRecord(
   };
 }
 
-export async function loadKatasterMapData(): Promise<{
+export async function loadKatasterMapData(pb: PocketBase | null = createPocketBaseClient()): Promise<{
   knoten: KatasterMapRecord[];
   pfosten: KatasterMapRecord[];
   kanten: KatasterMapRecord[];
@@ -112,8 +113,6 @@ export async function loadKatasterMapData(): Promise<{
   knotenpunktverbindungen: KatasterMapRecord[];
   pocketBaseWarning: string | null;
 }> {
-  const pb = createPocketBaseClient();
-
   if (!pb) {
     return {
       knoten: [],
