@@ -3,7 +3,13 @@
   import WegweiserForm from '$lib/components/WegweiserForm.svelte';
   import WegweiserPreview from '$lib/components/WegweiserPreview.svelte';
   import { normalizeWegweiserData, validateWegweiser } from '$lib/wegweiser';
-  import type { WegweiserData, WegweiserDraftListItem, WegweiserOption } from '$lib/wegweiser';
+  import type {
+    WegweiserData,
+    WegweiserDraftListItem,
+    WegweiserFormatErrorMap,
+    WegweiserFormatMap,
+    WegweiserOption
+  } from '$lib/wegweiser';
 
   let {
     data
@@ -12,6 +18,8 @@
       drafts: WegweiserDraftListItem[];
       pictogramOptions: WegweiserOption[];
       routeOptions: WegweiserOption[];
+      wegweiserFormats: WegweiserFormatMap;
+      wegweiserFormatErrors: WegweiserFormatErrorMap;
       pocketBaseWarning: string | null;
     };
   } = $props();
@@ -412,6 +420,8 @@
       <WegweiserPreview
         data={wegweiser}
         draftTitle={entwurfTitel}
+        formats={data.wegweiserFormats}
+        formatErrors={data.wegweiserFormatErrors}
         pictogramOptions={data.pictogramOptions}
         routeOptions={data.routeOptions}
       />

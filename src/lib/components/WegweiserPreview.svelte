@@ -1,19 +1,38 @@
 <script lang="ts">
-  import type { WegweiserData, WegweiserOption } from '$lib/wegweiser';
-  import { buildWegweiserSvg, wegweiserLayout } from '$lib/wegweiser';
-  import WegweiserSign from './WegweiserSign.svelte';
+  import type {
+    WegweiserData,
+    WegweiserFormatErrorMap,
+    WegweiserFormatMap,
+    WegweiserOption
+  } from '$lib/wegweiser';
+  import { buildWegweiserSvgFromFormat, wegweiserLayout } from '$lib/wegweiser';
 
   let {
     data,
     draftTitle = '',
+    formats = {},
+    formatErrors = {},
     pictogramOptions = [],
     routeOptions = []
   }: {
     data: WegweiserData;
     draftTitle?: string;
+    formats?: WegweiserFormatMap;
+    formatErrors?: WegweiserFormatErrorMap;
     pictogramOptions?: WegweiserOption[];
     routeOptions?: WegweiserOption[];
   } = $props();
+
+  const currentFormat = $derived(formats[data.direction] ?? null);
+  const currentFormatError = $derived(
+    formatErrors[data.direction] ??
+      `Das PocketBase-Format ${data.direction === 'right' ? 'pfeilwegweiser_rechts' : 'pfeilwegweiser_links'} konnte nicht geladen werden.`
+  );
+  const previewSvg = $derived(
+    currentFormat?.svg
+      ? buildWegweiserSvgFromFormat(data, currentFormat.svg, { pictogramOptions, routeOptions })
+      : ''
+  );
 
   const TRANSPARENT_PIXEL_DATA_URL =
     'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -103,7 +122,7 @@
   }
 
   async function buildEmbeddedExportSvg(): Promise<string> {
-    const svg = buildWegweiserSvg(data, { pictogramOptions, routeOptions });
+    const svg = buildWegweiserSvgFromFormat(data, currentFormat?.svg ?? '', { pictogramOptions, routeOptions });
     const imageUrls = collectExportImageUrls();
 
     if (!imageUrls.length) {
@@ -151,7 +170,11 @@
   }
 
   function downloadSvg() {
-    const svg = buildWegweiserSvg(data, { pictogramOptions, routeOptions });
+    if (!currentFormat?.svg) {
+      return;
+    }
+
+    const svg = buildWegweiserSvgFromFormat(data, currentFormat.svg, { pictogramOptions, routeOptions });
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -163,6 +186,10 @@
   }
 
   async function downloadPng() {
+    if (!currentFormat?.svg) {
+      return;
+    }
+
     const svg = await buildEmbeddedExportSvg();
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const svgUrl = URL.createObjectURL(svgBlob);
@@ -211,17 +238,23 @@
 </script>
 
 <div class="svg-preview" aria-label="SVG-Vorschau Pfeilwegweiser">
-  <WegweiserSign {data} {pictogramOptions} {routeOptions} />
+  {#if previewSvg}
+    {@html previewSvg}
+  {:else}
+    <p class="svg-preview-error">
+      {currentFormatError}
+    </p>
+  {/if}
 </div>
 <div class="preview-actions">
   <p class="direction-label">
     {data.direction === 'right' ? 'rechtsweisend' : 'linksweisend'}
   </p>
   <div class="preview-downloads">
-    <button class="button secondary-button" type="button" onclick={downloadSvg}>
+    <button class="button secondary-button" type="button" disabled={!currentFormat?.svg} onclick={downloadSvg}>
       SVG herunterladen
     </button>
-    <button class="button secondary-button" type="button" onclick={downloadPng}>
+    <button class="button secondary-button" type="button" disabled={!currentFormat?.svg} onclick={downloadPng}>
       PNG herunterladen
     </button>
   </div>
