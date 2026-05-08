@@ -1,3 +1,5 @@
+import b612RegularUrl from '@fontsource/b612/files/b612-latin-400-normal.woff2?url';
+
 export type Direction = 'left' | 'right';
 export type DestinationPictogram = 'none' | string;
 export type RouteOption = string;
@@ -36,6 +38,29 @@ export type WegweiserFormat = {
 export type WegweiserFormatErrorMap = Record<string, string>;
 type WegweiserFormatMeta = Pick<WegweiserFormat, 'slug' | 'name' | 'description'>;
 type TabellenwegweiserVariant = 'straight' | 'right' | 'left';
+const wegweiserFontFamily = '"B612", sans-serif';
+const hbrScaledLayout = {
+  signWidth: 800,
+  signHeight: 200,
+  arrowBikeAreaWidth: 160,
+  destinationAreaWidth: 520,
+  distanceAreaWidth: 120,
+  mainFontSize: 50,
+  decimalFontSize: 36,
+  pictogramSize: 50,
+  pictogramGap: 6,
+  edgeInset: 26,
+  textAxisOffset: 72,
+  distanceInset: 26,
+  decimalColumnWidth: 40,
+  commaGap: 11,
+  decimalBaselineOffset: 6,
+  routePictogramDistanceGap: 78,
+  lineY: {
+    top: 64,
+    bottom: 140
+  }
+} as const;
 
 export type WegweiserData = {
   farDestination: string;
@@ -80,14 +105,14 @@ export type WegweiserDraftListItem = {
 export const wegweiserLayout = {
   ansichtBreite: 800,
   ansichtHoehe: 330,
-  schildBreite: 800,
-  schildHoehe: 200,
+  schildBreite: hbrScaledLayout.signWidth,
+  schildHoehe: hbrScaledLayout.signHeight,
   schildLinks: 0,
   schildOben: 0,
   schildMitteY: 100,
-  pfeilFahrradBereichBreite: 160,
-  zielBereichBreite: 520,
-  kilometerBereichBreite: 120,
+  pfeilFahrradBereichBreite: hbrScaledLayout.arrowBikeAreaWidth,
+  zielBereichBreite: hbrScaledLayout.destinationAreaWidth,
+  kilometerBereichBreite: hbrScaledLayout.distanceAreaWidth,
   isoPfeilBreite: 80,
   isoPfeilHoehe: 80,
   fahrradBreite: 82,
@@ -95,19 +120,19 @@ export const wegweiserLayout = {
   vollfarbRandBreite: 12,
   eckRadius: 16,
   piktogrammSpalteBreite: 107,
-  innenabstand: 30,
-  schriftRandAbstand: 22,
+  innenabstand: hbrScaledLayout.edgeInset,
+  schriftRandAbstand: hbrScaledLayout.distanceInset,
   spaltenAbstand: 16,
-  piktogrammGroesse: 50,
-  zeilenPiktogrammGroesse: 50,
-  zeilenPiktogrammAbstand: 6,
-  textSchriftGroesse: 50,
-  entfernungGanzzahlSchriftGroesse: 50,
-  entfernungNachkommaSchriftGroesse: 36,
+  piktogrammGroesse: hbrScaledLayout.pictogramSize,
+  zeilenPiktogrammGroesse: hbrScaledLayout.pictogramSize,
+  zeilenPiktogrammAbstand: hbrScaledLayout.pictogramGap,
+  textSchriftGroesse: hbrScaledLayout.mainFontSize,
+  entfernungGanzzahlSchriftGroesse: hbrScaledLayout.mainFontSize,
+  entfernungNachkommaSchriftGroesse: hbrScaledLayout.decimalFontSize,
   zeilenAbstand: 32,
   linienY: {
-    oben: 59,
-    unten: 142,
+    oben: hbrScaledLayout.lineY.top,
+    unten: hbrScaledLayout.lineY.bottom,
     einzeln: 100
   },
   einschubQuadratGroesse: 120,
@@ -121,20 +146,8 @@ export const wegweiserLayout = {
 } as const;
 
 const tabellenwegweiserLayout = {
-  signWidth: wegweiserLayout.schildBreite,
-  signHeight: wegweiserLayout.schildHoehe,
-  arrowBikeAreaWidth: wegweiserLayout.pfeilFahrradBereichBreite,
-  destinationAreaWidth: wegweiserLayout.zielBereichBreite,
-  distanceAreaWidth: wegweiserLayout.kilometerBereichBreite,
-  mainFontSize: wegweiserLayout.textSchriftGroesse,
-  decimalFontSize: wegweiserLayout.entfernungNachkommaSchriftGroesse,
-  pictogramSize: wegweiserLayout.zeilenPiktogrammGroesse,
-  pictogramGap: wegweiserLayout.zeilenPiktogrammAbstand,
-  textInset: wegweiserLayout.innenabstand,
-  distanceInset: wegweiserLayout.schriftRandAbstand,
-  decimalColumnWidth: 36,
-  commaGap: 13,
-  decimalBaselineOffset: 7
+  ...hbrScaledLayout,
+  textInset: hbrScaledLayout.edgeInset
 } as const;
 
 export const pictogramOptions: WegweiserOption[] = [
@@ -612,7 +625,7 @@ function getAlignedDistanceMarkup(value: string, commaX: number, y: number): str
   return `<g class="distance-aligned">
     <text x="${commaX}" y="${y}" class="distance-integer">${escapeSvgText(parts.integer)}</text>
     <text x="${commaX}" y="${y}" class="distance-comma">,</text>
-    <text x="${commaX + tabellenwegweiserLayout.commaGap}" y="${y + tabellenwegweiserLayout.decimalBaselineOffset}" class="distance-decimal-aligned">${escapeSvgText(parts.decimal)}</text>
+    <text x="${commaX + hbrScaledLayout.commaGap}" y="${y + hbrScaledLayout.decimalBaselineOffset}" class="distance-decimal-aligned">${escapeSvgText(parts.decimal)}</text>
   </g>`;
 }
 
@@ -766,8 +779,16 @@ function getTabellenwegweiserTextX(line: WegweiserRow, pictogramX: number, textS
     return textStartX;
   }
 
-  return pictogramX + line.pictograms.length * tabellenwegweiserLayout.pictogramSize +
+  const pictogramEndX =
+    pictogramX +
+    line.pictograms.length * tabellenwegweiserLayout.pictogramSize +
     line.pictograms.length * tabellenwegweiserLayout.pictogramGap;
+
+  return Math.max(pictogramX + hbrScaledLayout.textAxisOffset, pictogramEndX);
+}
+
+function getPfeilwegweiserDistanceCommaX(geometry: ReturnType<typeof getSignGeometry>): number {
+  return geometry.distanceEndX - hbrScaledLayout.decimalColumnWidth;
 }
 
 function getTabellenwegweiserRoutePictogramX(line: WegweiserRow, distanceAreaStartX: number): number {
@@ -784,6 +805,20 @@ function getPfeilwegweiserTextX(line: WegweiserRow, geometry: ReturnType<typeof 
   return geometry.iconX +
     line.pictograms.length * geometry.lineIconSize +
     line.pictograms.length * geometry.lineIconGap;
+}
+
+function getPfeilwegweiserRoutePictogramX(
+  line: WegweiserRow,
+  geometry: ReturnType<typeof getSignGeometry>,
+  distanceCommaX: number
+): number {
+  const routePictogramSize = geometry.lineIconSize;
+  const routePictogramGap = geometry.lineIconGap;
+  const routePictogramWidth =
+    line.routePictograms.length * routePictogramSize +
+    Math.max(0, line.routePictograms.length - 1) * routePictogramGap;
+
+  return distanceCommaX - hbrScaledLayout.routePictogramDistanceGap - routePictogramWidth;
 }
 
 function getTabellenwegweiserTextMarkup(
@@ -823,14 +858,8 @@ export function buildWegweiserSvgFromFormat(
       .map((line) => {
         const y = line.y;
         const targetTextX = getPfeilwegweiserTextX(line, geometry);
-        const distanceCommaX = geometry.distanceEndX - tabellenwegweiserLayout.decimalColumnWidth;
-        const routePictogramSize = geometry.lineIconSize;
-        const routePictogramGap = geometry.lineIconGap;
-        const routePictogramStartX =
-          geometry.distanceAreaStartX -
-          line.routePictograms.length * routePictogramSize -
-          Math.max(0, line.routePictograms.length - 1) * routePictogramGap -
-          routePictogramGap;
+        const distanceCommaX = getPfeilwegweiserDistanceCommaX(geometry);
+        const routePictogramStartX = getPfeilwegweiserRoutePictogramX(line, geometry, distanceCommaX);
 
       return `${getLinePictogramsMarkup(line.pictograms, assets?.pictogramOptions, geometry.iconX, y)}
   <text x="${targetTextX}" y="${y}" class="target-text">${escapeSvgText(line.destination)}</text>
@@ -845,14 +874,15 @@ export function buildWegweiserSvgFromFormat(
   <title id="sign-title">HBR-Pfeilwegweiser</title>
   <desc id="sign-description">Pfeilwegweiser ${data.direction === 'right' ? 'rechtsweisend' : 'linksweisend'}</desc>
   <style>
-    .target-text,.distance-text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:${wegweiserLayout.textSchriftGroesse}px;font-weight:500;dominant-baseline:middle}
+    @font-face{font-family:"B612";font-style:normal;font-weight:400;src:url("${escapeSvgAttribute(b612RegularUrl)}") format("woff2")}
+    .target-text,.distance-text{fill:#d7001f;font-family:${wegweiserFontFamily};font-size:${wegweiserLayout.textSchriftGroesse}px;font-weight:400;letter-spacing:-0.3px;font-synthesis:none;dominant-baseline:middle;text-rendering:geometricPrecision}
     .distance-text{text-anchor:end}
     .distance-decimal{font-size:${wegweiserLayout.entfernungNachkommaSchriftGroesse}px}
     .table-target-text{font-size:${tabellenwegweiserLayout.mainFontSize}px;text-anchor:start}
-    .distance-aligned text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-weight:500;dominant-baseline:middle}
+    .distance-aligned text{fill:#d7001f;font-family:${wegweiserFontFamily};font-weight:400;letter-spacing:-0.45px;font-synthesis:none;dominant-baseline:middle;text-rendering:geometricPrecision}
     .distance-integer{font-size:${wegweiserLayout.textSchriftGroesse}px;text-anchor:end}
     .distance-comma{font-size:${wegweiserLayout.textSchriftGroesse}px;text-anchor:start}
-    .distance-decimal-aligned{font-size:${tabellenwegweiserLayout.decimalFontSize}px;text-anchor:start}
+    .distance-decimal-aligned{font-size:${hbrScaledLayout.decimalFontSize}px;text-anchor:start}
     .pictogram rect{fill:#fff;stroke:#d7001f;stroke-width:2}.pictogram text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;text-anchor:middle;dominant-baseline:middle}.picto-line{fill:none;stroke:#d7001f;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}.knotenpunkt-item rect{fill:#d7001f;stroke:#d7001f;stroke-width:0}.knotenpunkt-item circle{fill:none;stroke:#fff;stroke-width:${wegweiserLayout.knotenpunktKreisLinienBreite}}.route-item .knotenpunkt-text{fill:#fff;font-size:${wegweiserLayout.knotenpunktSchriftGroesse}px;font-weight:700;text-anchor:middle;dominant-baseline:middle}
   </style>
