@@ -3,8 +3,7 @@ import type {
   Direction,
   WegweiserDraftListItem,
   WegweiserFormat,
-  WegweiserFormatErrorMap,
-  WegweiserFormatMap
+  WegweiserFormatErrorMap
 } from '$lib/wegweiser';
 import { getPocketBaseFileUrl } from '$lib/server/pocketbase';
 import type PocketBase from 'pocketbase';
@@ -85,18 +84,44 @@ function firstFileField(record: RecordModel, field: string): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function inferFormatDirection(record: RecordModel): Direction {
+  const direction = stringField(record, ['richtung', 'direction']).toLowerCase();
+  const type = stringField(record, ['typ', 'type']).toLowerCase();
+  const slug = stringField(record, ['slug']).toLowerCase();
+
+  if ([direction, type, slug].some((value) => value.includes('links') || value.includes('left'))) {
+    return 'left';
+  }
+
+  return 'right';
+}
+
+function mapWegweiserFormatRecord(record: RecordModel, svg = ''): WegweiserFormat {
+  const slug = stringField(record, ['slug'], String(record.id ?? ''));
+
+  return {
+    id: String(record.id ?? ''),
+    slug,
+    name: stringField(record, ['name', 'titel', 'bezeichnung'], slug),
+    description: firstStringField(record, ['beschreibung', 'description']) ?? undefined,
+    direction: inferFormatDirection(record),
+    svg
+  };
+}
+
 async function loadWegweiserFormat(
   pb: PocketBase,
   fetch: typeof globalThis.fetch,
-  slug: string
+  record: RecordModel
 ): Promise<{ format: WegweiserFormat | null; error: string | null }> {
+  const slug = stringField(record, ['slug'], String(record.id ?? ''));
+
   try {
-    const record = await pb.collection('wegweiser_formate').getFirstListItem<RecordModel>(`slug = "${slug}"`);
     const templateSvg = firstFileField(record, 'template_svg');
 
     if (!templateSvg) {
       return {
-        format: null,
+        format: mapWegweiserFormatRecord(record),
         error: `Das PocketBase-Format ${slug} wurde gefunden, aber das Feld template_svg enthält keine SVG-Datei.`
       };
     }
@@ -112,56 +137,50 @@ async function loadWegweiserFormat(
 
     if (!svg) {
       return {
-        format: null,
+        format: mapWegweiserFormatRecord(record),
         error: `Das PocketBase-Format ${slug} wurde gefunden, aber die SVG-Datei ist leer.`
       };
     }
 
     return {
-      format: {
-        id: String(record.id ?? ''),
-        slug: firstStringField(record, ['slug']) ?? slug,
-        name: stringField(record, ['name', 'titel', 'bezeichnung'], slug),
-        svg
-      },
+      format: mapWegweiserFormatRecord(record, svg),
       error: null
     };
   } catch (error) {
     console.error(`PocketBase-Wegweiserformat ${slug} konnte nicht geladen werden.`, error);
 
     return {
-      format: null,
+      format: mapWegweiserFormatRecord(record),
       error: `Das PocketBase-Format ${slug} konnte nicht geladen werden. Die Vorschau wird ohne alten Hintergrund nicht angezeigt.`
     };
   }
 }
 
-const wegweiserFormatSlugs: Record<Direction, string> = {
-  right: 'pfeilwegweiser_rechts',
-  left: 'pfeilwegweiser_links'
-};
-
 async function loadWegweiserFormats(
   pb: PocketBase,
   fetch: typeof globalThis.fetch
-): Promise<{ formats: WegweiserFormatMap; errors: WegweiserFormatErrorMap }> {
+): Promise<{ formats: WegweiserFormat[]; errors: WegweiserFormatErrorMap }> {
+  const records = await pb.collection('wegweiser_formate').getFullList<RecordModel>({
+    filter:
+      'aktiv = true && (wegweiser_typ = "pfeilwegweiser" || wegweiser_typ = "tabellenwegweiser")',
+    sort: 'sortierung'
+  });
   const entries = await Promise.all(
-    Object.entries(wegweiserFormatSlugs).map(async ([direction, slug]) => {
-      const result = await loadWegweiserFormat(pb, fetch, slug);
-
-      return [direction as Direction, result] as const;
-    })
+    records.map(async (record) => ({
+      slug: stringField(record, ['slug'], String(record.id ?? '')),
+      result: await loadWegweiserFormat(pb, fetch, record)
+    }))
   );
-  const formats: WegweiserFormatMap = {};
+  const formats: WegweiserFormat[] = [];
   const errors: WegweiserFormatErrorMap = {};
 
-  for (const [direction, result] of entries) {
+  for (const { slug, result } of entries) {
     if (result.format) {
-      formats[direction] = result.format;
+      formats.push(result.format);
     }
 
     if (result.error) {
-      errors[direction] = result.error;
+      errors[slug] = result.error;
     }
   }
 
@@ -177,10 +196,9 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
       pictogramOptions,
       routeOptions,
       drafts: [] satisfies WegweiserDraftListItem[],
-      wegweiserFormats: {},
+      wegweiserFormats: [] satisfies WegweiserFormat[],
       wegweiserFormatErrors: {
-        right: 'PocketBase ist nicht konfiguriert. Das Format pfeilwegweiser_rechts konnte nicht geladen werden.',
-        left: 'PocketBase ist nicht konfiguriert. Das Format pfeilwegweiser_links konnte nicht geladen werden.'
+        pocketbase: 'PocketBase ist nicht konfiguriert. Wegweiser-Formate konnten nicht geladen werden.'
       },
       pocketBaseWarning:
         'PocketBase ist nicht konfiguriert. Setze PUBLIC_POCKETBASE_URL, damit Zielpiktogramme und Themenrouten geladen werden.'
@@ -223,12 +241,10 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
       pictogramOptions,
       routeOptions,
       drafts: [] satisfies WegweiserDraftListItem[],
-      wegweiserFormats: {},
+      wegweiserFormats: [] satisfies WegweiserFormat[],
       wegweiserFormatErrors: {
-        right:
-          'Das PocketBase-Format pfeilwegweiser_rechts konnte nicht geladen werden. Die Vorschau wird ohne alten Hintergrund nicht angezeigt.',
-        left:
-          'Das PocketBase-Format pfeilwegweiser_links konnte nicht geladen werden. Die Vorschau wird ohne alten Hintergrund nicht angezeigt.'
+        pocketbase:
+          'Wegweiser-Formate konnten nicht geladen werden. Die Vorschau wird ohne alten Hintergrund nicht angezeigt.'
       },
       pocketBaseWarning:
         'PocketBase-Stammdaten konnten nicht geladen werden. Der Editor läuft mit lokalen Fallback-Daten weiter.'

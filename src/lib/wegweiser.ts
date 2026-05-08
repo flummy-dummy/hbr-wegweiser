@@ -29,11 +29,12 @@ export type WegweiserFormat = {
   id: string;
   slug: string;
   name: string;
+  description?: string;
+  direction: Direction;
   svg: string;
 };
-
-export type WegweiserFormatMap = Partial<Record<Direction, WegweiserFormat>>;
-export type WegweiserFormatErrorMap = Partial<Record<Direction, string>>;
+export type WegweiserFormatErrorMap = Record<string, string>;
+type WegweiserFormatMeta = Pick<WegweiserFormat, 'slug' | 'name' | 'description'>;
 
 export type WegweiserData = {
   farDestination: string;
@@ -44,6 +45,7 @@ export type WegweiserData = {
   nearDistance: string;
   nearPictograms: DestinationPictogram[];
   nearRoutePictograms: DestinationPictogram[];
+  formatSlug: string;
   direction: Direction;
   routes: RouteInsert[];
 };
@@ -142,6 +144,7 @@ export const defaultWegweiserData: WegweiserData = {
   nearDistance: '5,6',
   nearPictograms: [],
   nearRoutePictograms: [],
+  formatSlug: 'pfeilwegweiser_rechts',
   direction: 'right',
   routes: [
     { type: 'themenroute', route: 'castle-route' },
@@ -230,6 +233,7 @@ export function isWegweiserData(value: unknown): value is WegweiserData {
     typeof candidate.farDistance === 'string' &&
     typeof candidate.nearDestination === 'string' &&
     typeof candidate.nearDistance === 'string' &&
+    (typeof candidate.formatSlug === 'string' || candidate.formatSlug === undefined) &&
     (candidate.direction === 'left' || candidate.direction === 'right') &&
     Array.isArray(candidate.farPictograms) &&
     Array.isArray(candidate.farRoutePictograms) &&
@@ -301,6 +305,13 @@ export function normalizeWegweiserData(
   if (direction !== candidate.direction) {
     usedDefaults = true;
   }
+  const fallbackFormatSlug = direction === 'left' ? 'pfeilwegweiser_links' : 'pfeilwegweiser_rechts';
+  const formatSlug = typeof candidate.formatSlug === 'string' && candidate.formatSlug.trim()
+    ? candidate.formatSlug.trim()
+    : fallbackFormatSlug;
+  if (formatSlug !== candidate.formatSlug) {
+    usedDefaults = true;
+  }
 
   const farPictograms = sanitizePictogramArray(candidate.farPictograms);
   const farRoutePictograms = sanitizePictogramArray(candidate.farRoutePictograms);
@@ -322,6 +333,7 @@ export function normalizeWegweiserData(
       nearDistance: getString('nearDistance'),
       nearPictograms,
       nearRoutePictograms,
+      formatSlug,
       direction,
       routes
     },
@@ -468,6 +480,31 @@ export function getLineYPositions(lineCount: number): number[] {
   return [88, 162];
 }
 
+function getTableStraightRows(data: WegweiserData): WegweiserRow[] {
+  const rows: WegweiserRow[] = [
+    {
+      key: 'far',
+      destination: data.farDestination.trim(),
+      distance: data.farDistance.trim(),
+      pictograms: data.farPictograms.slice(0, 2),
+      routePictograms: data.farRoutePictograms.slice(0, 2),
+      y: wegweiserLayout.linienY.oben,
+      hasDestination: Boolean(data.farDestination.trim())
+    },
+    {
+      key: 'near',
+      destination: data.nearDestination.trim(),
+      distance: data.nearDistance.trim(),
+      pictograms: data.nearPictograms.slice(0, 2),
+      routePictograms: data.nearRoutePictograms.slice(0, 2),
+      y: wegweiserLayout.linienY.unten,
+      hasDestination: Boolean(data.nearDestination.trim())
+    }
+  ];
+
+  return rows.filter((row) => row.destination || row.distance);
+}
+
 function getPictogramMarkup(
   pictogram: DestinationPictogram,
   x: number,
@@ -544,6 +581,20 @@ function getDistanceMarkup(value: string, x: number, y: number): string {
   }
 
   return `<text x="${x}" y="${y}" class="distance-text"><tspan>${escapeSvgText(parts.integer)},</tspan><tspan class="distance-decimal">${escapeSvgText(parts.decimal)}</tspan></text>`;
+}
+
+function getAlignedDistanceMarkup(value: string, commaX: number, y: number): string {
+  const parts = getDistanceParts(value);
+
+  if (!parts.decimal) {
+    return `<g class="distance-aligned"><text x="${commaX}" y="${y}" class="distance-integer">${escapeSvgText(parts.integer)}</text></g>`;
+  }
+
+  return `<g class="distance-aligned">
+    <text x="${commaX}" y="${y}" class="distance-integer">${escapeSvgText(parts.integer)}</text>
+    <text x="${commaX}" y="${y}" class="distance-comma">,</text>
+    <text x="${commaX + 13}" y="${y + 7}" class="distance-decimal-aligned">${escapeSvgText(parts.decimal)}</text>
+  </g>`;
 }
 
 export function getRouteTextLines(label: string): string[] {
@@ -644,31 +695,71 @@ function getFormatInnerSvg(formatSvg: string): string {
   return innerMatch?.[1]?.trim() ?? trimmedSvg;
 }
 
+function isTableStraightFormat(data: WegweiserData, format?: WegweiserFormatMeta): boolean {
+  const formatText = [format?.slug, format?.name, format?.description, data.formatSlug]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return formatText.includes('tabellenwegweiser') && formatText.includes('geradeaus');
+}
+
+function getTableStraightTextMarkup(data: WegweiserData, assets?: WegweiserAssets): string {
+  const rows = getTableStraightRows(data).filter((row) => row.hasDestination);
+  const iconX = 192;
+  const textXWithoutIcon = 192;
+  const textXWithIcon = 308;
+  const routePictogramSize = wegweiserLayout.zeilenPiktogrammGroesse;
+  const routePictogramGap = wegweiserLayout.zeilenPiktogrammAbstand;
+  const distanceAreaStartX = 650;
+  const distanceCommaX = 722;
+  const routePictogramEndX = distanceAreaStartX - routePictogramGap;
+
+  return rows
+    .map((line) => {
+      const y = line.y;
+      const targetTextX = line.pictograms.length ? textXWithIcon : textXWithoutIcon;
+      const routePictogramStartX =
+        routePictogramEndX -
+        line.routePictograms.length * routePictogramSize -
+        Math.max(0, line.routePictograms.length - 1) * routePictogramGap;
+
+      return `${getLinePictogramsMarkup(line.pictograms, assets?.pictogramOptions, iconX, y)}
+  <text x="${targetTextX}" y="${y}" class="target-text table-target-text">${escapeSvgText(line.destination)}</text>
+  ${getLinePictogramsMarkup(line.routePictograms, assets?.pictogramOptions, routePictogramStartX, y)}
+  ${getAlignedDistanceMarkup(line.distance, distanceCommaX, y)}`;
+    })
+    .join('\n');
+}
+
 export function buildWegweiserSvgFromFormat(
   data: WegweiserData,
   formatSvg: string,
-  assets?: WegweiserAssets
+  assets?: WegweiserAssets,
+  format?: WegweiserFormatMeta
 ): string {
   const geometry = getSignGeometry(data.direction);
-  const rows = getWegweiserRows(data).filter((row) => row.hasDestination);
-  const textLines = rows
-    .map((line) => {
-      const y = line.y;
-      const targetTextX = line.pictograms.length ? geometry.contentStartX : geometry.textStartX;
-      const routePictogramSize = geometry.lineIconSize;
-      const routePictogramGap = geometry.lineIconGap;
-      const routePictogramStartX =
-        geometry.distanceAreaStartX -
-        line.routePictograms.length * routePictogramSize -
-        Math.max(0, line.routePictograms.length - 1) * routePictogramGap -
-        routePictogramGap;
+  const textLines = isTableStraightFormat(data, format)
+    ? getTableStraightTextMarkup(data, assets)
+    : getWegweiserRows(data)
+      .filter((row) => row.hasDestination)
+      .map((line) => {
+        const y = line.y;
+        const targetTextX = line.pictograms.length ? geometry.contentStartX : geometry.textStartX;
+        const routePictogramSize = geometry.lineIconSize;
+        const routePictogramGap = geometry.lineIconGap;
+        const routePictogramStartX =
+          geometry.distanceAreaStartX -
+          line.routePictograms.length * routePictogramSize -
+          Math.max(0, line.routePictograms.length - 1) * routePictogramGap -
+          routePictogramGap;
 
-      return `${getLinePictogramsMarkup(line.pictograms, assets?.pictogramOptions, geometry.iconX, y)}
+        return `${getLinePictogramsMarkup(line.pictograms, assets?.pictogramOptions, geometry.iconX, y)}
   <text x="${targetTextX}" y="${y}" class="target-text">${escapeSvgText(line.destination)}</text>
   ${getLinePictogramsMarkup(line.routePictograms, assets?.pictogramOptions, routePictogramStartX, y)}
   ${getDistanceMarkup(line.distance, geometry.distanceEndX, y)}`;
-    })
-    .join('\n');
+      })
+      .join('\n');
   const routeMarkup = getRouteMarkup(data, assets?.routeOptions);
   const formatMarkup = getFormatInnerSvg(formatSvg);
 
@@ -679,6 +770,11 @@ export function buildWegweiserSvgFromFormat(
     .target-text,.distance-text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:${wegweiserLayout.textSchriftGroesse}px;font-weight:500;dominant-baseline:middle}
     .distance-text{text-anchor:end}
     .distance-decimal{font-size:${wegweiserLayout.entfernungNachkommaSchriftGroesse}px}
+    .table-target-text{font-size:46px;text-anchor:start}
+    .distance-aligned text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-weight:500;dominant-baseline:middle}
+    .distance-integer{font-size:${wegweiserLayout.textSchriftGroesse}px;text-anchor:end}
+    .distance-comma{font-size:${wegweiserLayout.textSchriftGroesse}px;text-anchor:start}
+    .distance-decimal-aligned{font-size:${wegweiserLayout.entfernungNachkommaSchriftGroesse}px;text-anchor:start}
     .pictogram rect{fill:#fff;stroke:#d7001f;stroke-width:2}.pictogram text{fill:#d7001f;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;text-anchor:middle;dominant-baseline:middle}.picto-line{fill:none;stroke:#d7001f;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     .route-item rect{fill:#fff;stroke:#2f4778;stroke-width:2}.route-item text{fill:#1f2a44;font-family:Arial,Helvetica,sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}.knotenpunkt-item rect{fill:#d7001f;stroke:#d7001f;stroke-width:0}.knotenpunkt-item circle{fill:none;stroke:#fff;stroke-width:${wegweiserLayout.knotenpunktKreisLinienBreite}}.route-item .knotenpunkt-text{fill:#fff;font-size:${wegweiserLayout.knotenpunktSchriftGroesse}px;font-weight:700;text-anchor:middle;dominant-baseline:middle}
   </style>

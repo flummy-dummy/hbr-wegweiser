@@ -1,8 +1,8 @@
 <script lang="ts">
   import type {
     WegweiserData,
+    WegweiserFormat,
     WegweiserFormatErrorMap,
-    WegweiserFormatMap,
     WegweiserOption
   } from '$lib/wegweiser';
   import { buildWegweiserSvgFromFormat, wegweiserLayout } from '$lib/wegweiser';
@@ -10,27 +10,29 @@
   let {
     data,
     draftTitle = '',
-    formats = {},
+    formats = [],
     formatErrors = {},
     pictogramOptions = [],
     routeOptions = []
   }: {
     data: WegweiserData;
     draftTitle?: string;
-    formats?: WegweiserFormatMap;
+    formats?: WegweiserFormat[];
     formatErrors?: WegweiserFormatErrorMap;
     pictogramOptions?: WegweiserOption[];
     routeOptions?: WegweiserOption[];
   } = $props();
 
-  const currentFormat = $derived(formats[data.direction] ?? null);
+  const currentFormat = $derived(formats.find((format) => format.slug === data.formatSlug) ?? null);
   const currentFormatError = $derived(
-    formatErrors[data.direction] ??
-      `Das PocketBase-Format ${data.direction === 'right' ? 'pfeilwegweiser_rechts' : 'pfeilwegweiser_links'} konnte nicht geladen werden.`
+    formatErrors[data.formatSlug] ??
+      (data.formatSlug
+        ? `Das PocketBase-Format ${data.formatSlug} konnte nicht geladen werden.`
+        : 'Es wurde kein Wegweiser-Format ausgewählt.')
   );
   const previewSvg = $derived(
     currentFormat?.svg
-      ? buildWegweiserSvgFromFormat(data, currentFormat.svg, { pictogramOptions, routeOptions })
+      ? buildWegweiserSvgFromFormat(data, currentFormat.svg, { pictogramOptions, routeOptions }, currentFormat)
       : ''
   );
 
@@ -122,7 +124,12 @@
   }
 
   async function buildEmbeddedExportSvg(): Promise<string> {
-    const svg = buildWegweiserSvgFromFormat(data, currentFormat?.svg ?? '', { pictogramOptions, routeOptions });
+    const svg = buildWegweiserSvgFromFormat(
+      data,
+      currentFormat?.svg ?? '',
+      { pictogramOptions, routeOptions },
+      currentFormat ?? undefined
+    );
     const imageUrls = collectExportImageUrls();
 
     if (!imageUrls.length) {
@@ -174,7 +181,7 @@
       return;
     }
 
-    const svg = buildWegweiserSvgFromFormat(data, currentFormat.svg, { pictogramOptions, routeOptions });
+    const svg = buildWegweiserSvgFromFormat(data, currentFormat.svg, { pictogramOptions, routeOptions }, currentFormat);
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

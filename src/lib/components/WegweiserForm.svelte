@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { RouteInsert, RouteOption, WegweiserData, WegweiserOption, WegweiserValidation } from '$lib/wegweiser';
+  import type {
+    RouteInsert,
+    RouteOption,
+    WegweiserData,
+    WegweiserFormat,
+    WegweiserOption,
+    WegweiserValidation
+  } from '$lib/wegweiser';
   import {
     formatDistance,
     getRouteInsertKey,
@@ -10,11 +17,13 @@
   let {
     data = $bindable(),
     errors,
+    formatOptions = [],
     pictogramOptions = fallbackPictogramOptions,
     routeOptions = fallbackRouteOptions
   }: {
     data: WegweiserData;
     errors: WegweiserValidation;
+    formatOptions?: WegweiserFormat[];
     pictogramOptions?: WegweiserOption[];
     routeOptions?: WegweiserOption[];
   } = $props();
@@ -78,6 +87,18 @@
       })
       .slice(0, 8)
   );
+  const selectedFormat = $derived(formatOptions.find((format) => format.slug === data.formatSlug) ?? null);
+
+  $effect(() => {
+    if (!selectedFormat && formatOptions.length) {
+      selectFormat(formatOptions[0].slug);
+      return;
+    }
+
+    if (selectedFormat && data.direction !== selectedFormat.direction) {
+      data.direction = selectedFormat.direction;
+    }
+  });
 
   function formatField(field: 'farDistance' | 'nearDistance') {
     data[field] = formatDistance(data[field]);
@@ -175,6 +196,16 @@
     const nextRoutes = [...data.routes];
     [nextRoutes[index], nextRoutes[targetIndex]] = [nextRoutes[targetIndex], nextRoutes[index]];
     data.routes = nextRoutes;
+  }
+
+  function selectFormat(slug: string) {
+    const format = formatOptions.find((candidate) => candidate.slug === slug);
+
+    data.formatSlug = slug;
+
+    if (format) {
+      data.direction = format.direction;
+    }
   }
 </script>
 
@@ -311,17 +342,23 @@
     </div>
   </div>
 
-  <fieldset class="direction-field">
-    <legend>Richtung</legend>
-    <label class="radio-option">
-      <input bind:group={data.direction} name="direction" type="radio" value="left" />
-      <span>linksweisend</span>
-    </label>
-    <label class="radio-option">
-      <input bind:group={data.direction} name="direction" type="radio" value="right" />
-      <span>rechtsweisend</span>
-    </label>
-  </fieldset>
+  <label class="format-select-field">
+    <span>Wegweiser-Format</span>
+    <select
+      disabled={!formatOptions.length}
+      name="formatSlug"
+      value={data.formatSlug}
+      onchange={(event) => selectFormat(event.currentTarget.value)}
+    >
+      {#if !formatOptions.length}
+        <option value="">Keine aktiven Formate geladen</option>
+      {:else}
+        {#each formatOptions as format}
+          <option value={format.slug}>{format.name}</option>
+        {/each}
+      {/if}
+    </select>
+  </label>
 
   <fieldset class="routes-field">
     <legend>Routeneinschübe</legend>

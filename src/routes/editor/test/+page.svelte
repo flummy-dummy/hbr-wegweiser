@@ -6,8 +6,8 @@
   import type {
     WegweiserData,
     WegweiserDraftListItem,
+    WegweiserFormat,
     WegweiserFormatErrorMap,
-    WegweiserFormatMap,
     WegweiserOption
   } from '$lib/wegweiser';
 
@@ -18,7 +18,7 @@
       drafts: WegweiserDraftListItem[];
       pictogramOptions: WegweiserOption[];
       routeOptions: WegweiserOption[];
-      wegweiserFormats: WegweiserFormatMap;
+      wegweiserFormats: WegweiserFormat[];
       wegweiserFormatErrors: WegweiserFormatErrorMap;
       pocketBaseWarning: string | null;
     };
@@ -34,6 +34,7 @@
       nearDistance: '',
       nearPictograms: [],
       nearRoutePictograms: [],
+      formatSlug: 'pfeilwegweiser_rechts',
       direction: 'right',
       routes: []
     };
@@ -409,6 +410,7 @@
       <WegweiserForm
         bind:data={wegweiser}
         {errors}
+        formatOptions={data.wegweiserFormats}
         pictogramOptions={data.pictogramOptions}
         routeOptions={data.routeOptions}
       />

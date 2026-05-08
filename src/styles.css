@@ -941,17 +941,18 @@ p {
   font-weight: 600;
 }
 
-.direction-field,
+.format-select-field,
 .routes-field {
-  display: flex;
-  flex-wrap: wrap;
   gap: 12px;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-.direction-field legend,
+.format-select-field {
+  display: grid;
+}
+
 .routes-field legend {
   width: 100%;
   margin-bottom: 2px;
