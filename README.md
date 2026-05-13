@@ -17,6 +17,7 @@ Für lokale Entwicklung eine `.env` im Projektroot anlegen:
 PUBLIC_POCKETBASE_URL=https://pocketbase.example.com
 POCKETBASE_ADMIN_EMAIL=admin@example.com
 POCKETBASE_ADMIN_PASSWORD=change-me
+BODY_SIZE_LIMIT=20M
 ```
 
 Die Variable ist öffentlich. Sie wird im Browser-Bundle sichtbar und darf daher keine Secrets enthalten.
@@ -68,15 +69,18 @@ In Coolify die Variable unter `Environment Variables` für den Service setzen:
 PUBLIC_POCKETBASE_URL=https://pocketbase.example.com
 POCKETBASE_ADMIN_EMAIL=admin@example.com
 POCKETBASE_ADMIN_PASSWORD=change-me
+BODY_SIZE_LIMIT=20M
 ```
 
 Die privaten Variablen gehören nur in den Serverprozess. Sie dürfen nicht im Frontend verwendet oder als `PUBLIC_...`-Variablen angelegt werden.
+
+`BODY_SIZE_LIMIT=20M` ist fuer `@sveltejs/adapter-node` im Deployment erforderlich, damit Admin-POSTs mit SVG- oder PNG-Dateien nicht am SvelteKit-Standardlimit von 512 KB scheitern. Die Uploadgroesse wird nicht unbegrenzt gesetzt: Die Themenrouten-Verwaltung akzeptiert pro Logo-Datei maximal 10 MB und speichert nur Metadaten plus PocketBase-Dateifelder (`svg_datei` oder `png_datei`), keine Base64-Bilddaten im Formular-JSON.
 
 Beispiel mit PM2:
 
 ```bash
 PUBLIC_POCKETBASE_URL=https://pocketbase.example.com npm run build
-PUBLIC_POCKETBASE_URL=https://pocketbase.example.com PORT=4173 HOST=0.0.0.0 pm2 start npm --name hbr-wegweiser -- run start
+PUBLIC_POCKETBASE_URL=https://pocketbase.example.com BODY_SIZE_LIMIT=20M PORT=4173 HOST=0.0.0.0 pm2 start npm --name hbr-wegweiser -- run start
 ```
 
 Für externe Vorschau über `wegweiser.holbes.de` ist `preview.allowedHosts` bereits gesetzt.

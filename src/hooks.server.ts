@@ -1,4 +1,4 @@
-import { error, redirect, type Handle } from '@sveltejs/kit';
+import { error, redirect, type Handle, type HandleServerError } from '@sveltejs/kit';
 import {
   buildAuthState,
   buildLoginRedirectPath,
@@ -78,4 +78,19 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   return resolve(event);
+};
+
+export const handleError: HandleServerError = ({ error }) => {
+  const message = error instanceof Error ? error.message : '';
+
+  if (message.includes('Content-length exceeds limit')) {
+    return {
+      message:
+        'Die Nutzlast ist zu gross. Bitte kleinere Dateien verwenden oder im Deployment BODY_SIZE_LIMIT passend setzen, zum Beispiel BODY_SIZE_LIMIT=20M.'
+    };
+  }
+
+  return {
+    message: 'Ein unerwarteter Serverfehler ist aufgetreten.'
+  };
 };

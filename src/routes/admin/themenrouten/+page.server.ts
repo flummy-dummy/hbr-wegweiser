@@ -18,6 +18,9 @@ type ThemenrouteAdminItem = {
   imageType: 'svg' | 'png' | null;
 };
 
+const MAX_THEMENROUTE_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_THEMENROUTE_FILE_SIZE_LABEL = '10 MB';
+
 function stringField(record: RecordModel, fields: string[], fallback = ''): string {
   for (const field of fields) {
     const value = record[field];
@@ -112,9 +115,32 @@ function serializableFormValues(values: FormData): Record<string, FormDataEntryV
   return Object.fromEntries(
     Array.from(values.entries()).map(([key, value]) => [
       key,
-      value instanceof File ? value.name : value
+      value instanceof File ? `${value.name} (${Math.ceil(value.size / 1024)} KB)` : value
     ])
   );
+}
+
+function validateThemenrouteFile(datei: File): string | null {
+  if (datei.size > MAX_THEMENROUTE_FILE_SIZE_BYTES) {
+    return `Die Datei ist zu gross. Bitte eine SVG- oder PNG-Datei bis ${MAX_THEMENROUTE_FILE_SIZE_LABEL} hochladen.`;
+  }
+
+  const lowerName = datei.name.toLowerCase();
+  const lowerType = datei.type.toLowerCase();
+  const isSvg = lowerType === 'image/svg+xml' || lowerName.endsWith('.svg');
+  const isPng = lowerType === 'image/png' || lowerName.endsWith('.png');
+
+  if (!isSvg && !isPng) {
+    return 'Es werden nur SVG- und PNG-Dateien unterstuetzt.';
+  }
+
+  return null;
+}
+
+function getThemenrouteFileField(datei: File): 'svg_datei' | 'png_datei' {
+  const lowerName = datei.name.toLowerCase();
+  const lowerType = datei.type.toLowerCase();
+  return lowerType === 'image/svg+xml' || lowerName.endsWith('.svg') ? 'svg_datei' : 'png_datei';
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -197,16 +223,13 @@ export const actions: Actions = {
       });
     }
 
-    const lowerName = datei.name.toLowerCase();
-    const lowerType = datei.type.toLowerCase();
-    const isSvg = lowerType === 'image/svg+xml' || lowerName.endsWith('.svg');
-    const isPng = lowerType === 'image/png' || lowerName.endsWith('.png');
+    const fileError = validateThemenrouteFile(datei);
 
-    if (!isSvg && !isPng) {
+    if (fileError) {
       return fail(400, {
         success: false,
         action: 'create',
-        message: 'Es werden nur SVG- und PNG-Dateien unterstuetzt.',
+        message: fileError,
         values: serializableFormValues(values)
       });
     }
@@ -238,7 +261,7 @@ export const actions: Actions = {
       payload.set('sortierung', String(sortierung));
     }
 
-    payload.set(isSvg ? 'svg_datei' : 'png_datei', datei, datei.name);
+    payload.set(getThemenrouteFileField(datei), datei, datei.name);
 
     try {
       await pbAdmin.collection('themenrouten').create(payload);
@@ -330,22 +353,20 @@ export const actions: Actions = {
     }
 
     if (datei instanceof File && datei.size) {
-      const lowerName = datei.name.toLowerCase();
-      const lowerType = datei.type.toLowerCase();
-      const isSvg = lowerType === 'image/svg+xml' || lowerName.endsWith('.svg');
-      const isPng = lowerType === 'image/png' || lowerName.endsWith('.png');
+      const fileError = validateThemenrouteFile(datei);
 
-      if (!isSvg && !isPng) {
+      if (fileError) {
         return fail(400, {
           success: false,
           action: 'update',
-          message: 'Es werden nur SVG- und PNG-Dateien unterstuetzt.',
+          message: fileError,
           values: serializableFormValues(values)
         });
       }
 
-      payload.set(isSvg ? 'svg_datei' : 'png_datei', datei, datei.name);
-      payload.set(isSvg ? 'png_datei' : 'svg_datei', '');
+      const fileField = getThemenrouteFileField(datei);
+      payload.set(fileField, datei, datei.name);
+      payload.set(fileField === 'svg_datei' ? 'png_datei' : 'svg_datei', '');
     }
 
     try {

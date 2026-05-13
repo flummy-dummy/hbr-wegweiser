@@ -759,7 +759,7 @@ function getTabellenwegweiserGeometry(variant: TabellenwegweiserVariant) {
   const destinationAreaStartX = arrowBikeAreaAtStart ? layout.arrowBikeAreaWidth : 0;
   const distanceAreaStartX = destinationAreaStartX + layout.destinationAreaWidth;
   const distanceAreaEndX = distanceAreaStartX + layout.distanceAreaWidth;
-  const textStartX = destinationAreaStartX + layout.textInset;
+  const textStartX = destinationAreaStartX + (variant === 'right' ? layout.textInset : 0);
   const pictogramX = textStartX;
   const distanceCommaX = distanceAreaEndX - layout.distanceInset - layout.decimalColumnWidth;
 
@@ -792,9 +792,12 @@ function getPfeilwegweiserDistanceCommaX(geometry: ReturnType<typeof getSignGeom
 }
 
 function getTabellenwegweiserRoutePictogramX(line: WegweiserRow, distanceAreaStartX: number): number {
+  const distanceGap = 20;
+
   return distanceAreaStartX -
     line.routePictograms.length * tabellenwegweiserLayout.pictogramSize -
-    Math.max(1, line.routePictograms.length) * tabellenwegweiserLayout.pictogramGap;
+    Math.max(1, line.routePictograms.length) * tabellenwegweiserLayout.pictogramGap -
+    distanceGap;
 }
 
 function getPfeilwegweiserTextX(line: WegweiserRow, geometry: ReturnType<typeof getSignGeometry>): number {
