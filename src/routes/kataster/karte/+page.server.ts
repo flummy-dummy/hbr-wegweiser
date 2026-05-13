@@ -238,6 +238,8 @@ export const actions: Actions = {
     const values = await event.request.formData();
     const knotenNr = formValue(values, 'knoten_nr');
     const bezeichnung = formValue(values, 'bezeichnung');
+    const kreis = formValue(values, 'kreis');
+    const kommune = formValue(values, 'kommune');
     const status = formValue(values, 'status');
     const knotenpunktNrRaw = formValue(values, 'knotenpunkt_nr');
     const bemerkung = formValue(values, 'bemerkung');
@@ -304,6 +306,8 @@ export const actions: Actions = {
       const createdRecord = await pbAdmin.collection('knoten').create({
         knoten_nr: knotenNr,
         bezeichnung,
+        kreis,
+        kommune,
         status,
         knotenpunkt_nr: knotenpunktNr,
         bemerkung,
@@ -338,6 +342,8 @@ export const actions: Actions = {
     const id = formValue(values, 'id');
     const knotenNr = formValue(values, 'knoten_nr');
     const bezeichnung = formValue(values, 'bezeichnung');
+    const kreis = formValue(values, 'kreis');
+    const kommune = formValue(values, 'kommune');
     const status = formValue(values, 'status');
     const knotenpunktNrRaw = formValue(values, 'knotenpunkt_nr');
     const bemerkung = formValue(values, 'bemerkung');
@@ -413,6 +419,8 @@ export const actions: Actions = {
       await pbAdmin.collection('knoten').update(id, {
         knoten_nr: knotenNr,
         bezeichnung,
+        kreis,
+        kommune,
         status,
         knotenpunkt_nr: knotenpunktNr,
         bemerkung,

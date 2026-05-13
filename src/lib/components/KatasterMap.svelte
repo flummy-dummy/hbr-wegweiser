@@ -15,6 +15,7 @@
   type DraftPoint = {
     lon: number;
     lat: number;
+    originalCoordinate?: readonly [number, number];
   };
 
   type DraftMode = 'none' | 'create' | 'edit' | 'create-edge' | 'edit-edge';
@@ -458,8 +459,9 @@
           return;
         }
 
-        const [lon, lat] = toLonLat(geometry.getCoordinates());
-        onDraftPointChange({ lon, lat });
+        const originalCoordinate = geometry.getCoordinates();
+        const [lon, lat] = toLonLat(originalCoordinate);
+        onDraftPointChange({ lon, lat, originalCoordinate: [originalCoordinate[0], originalCoordinate[1]] });
       });
 
       edgeModifyInteraction.on('modifyend', (event: { features: { item(index: number): Feature<Geometry> | undefined } }) => {
@@ -595,7 +597,7 @@
         if (draftMode !== 'none') {
           const [lon, lat] = toLonLat(event.coordinate);
           selectedFeatureInfo = null;
-          onDraftPointChange({ lon, lat });
+          onDraftPointChange({ lon, lat, originalCoordinate: [event.coordinate[0], event.coordinate[1]] });
           return;
         }
 

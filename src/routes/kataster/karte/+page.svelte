@@ -4,11 +4,16 @@
   import { page } from '$app/state';
   import KatasterMap from '$lib/components/KatasterMap.svelte';
   import type { GeoJsonGeometry, KatasterMapRecord } from '$lib/kataster';
+  import {
+    generateAdministrativeFieldsFromOsm,
+    generateKnotenBezeichnungFromOsm
+  } from '$lib/osm-knoten-bezeichnung';
   import type { SubmitFunction } from '@sveltejs/kit';
 
   type DraftPoint = {
     lon: number;
     lat: number;
+    originalCoordinate?: readonly [number, number];
   };
 
   type DraftMode = 'none' | 'create' | 'edit' | 'create-edge' | 'edit-edge';
@@ -271,11 +276,15 @@
   let editingKnotenId = $state(stringValue(initialValues, 'id'));
   let knotenNr = $state(stringValue(initialValues, 'knoten_nr'));
   let bezeichnung = $state(stringValue(initialValues, 'bezeichnung'));
+  let kreis = $state(stringValue(initialValues, 'kreis'));
+  let kommune = $state(stringValue(initialValues, 'kommune'));
   let status = $state(stringValue(initialValues, 'status') || 'bestand');
   let knotenpunktNr = $state(knotenpunktFieldValue(initialValues?.knotenpunkt_nr));
   let bemerkung = $state(stringValue(initialValues, 'bemerkung'));
   let aktiv = $state(stringValue(initialValues, 'aktiv') === 'on');
+  let osmBezeichnungStatus = $state<'idle' | 'loading' | 'empty' | 'error'>('idle');
   let edgeEditFormElement = $state<HTMLFormElement | null>(null);
+  let osmBezeichnungRequestId = 0;
   const canEdit = $derived(page.data.auth?.canEdit === true);
 
   const closeDraftOnSuccess: SubmitFunction = () => {
@@ -293,10 +302,13 @@
     editingKnotenId = '';
     knotenNr = '';
     bezeichnung = '';
+    kreis = '';
+    kommune = '';
     status = 'bestand';
     knotenpunktNr = '';
     bemerkung = '';
     aktiv = false;
+    osmBezeichnungStatus = 'idle';
   }
 
   function resetEdgeDraft() {
@@ -340,6 +352,58 @@
 
   function handleDraftPointChange(point: DraftPoint | null) {
     draftPoint = point;
+
+    if (draftMode === 'create' && point && (!bezeichnung.trim() || !kreis.trim() || !kommune.trim())) {
+      void suggestKnotenBezeichnungFromOsm(point, false);
+    }
+  }
+
+  async function suggestKnotenBezeichnungFromOsm(point: DraftPoint | null = draftPoint, force = false) {
+    if (!point || draftMode !== 'create' || (!force && bezeichnung.trim() && kreis.trim() && kommune.trim())) {
+      return;
+    }
+
+    const requestId = ++osmBezeichnungRequestId;
+    osmBezeichnungStatus = 'loading';
+
+    try {
+      const [suggestion, administrativeFields] = await Promise.all([
+        generateKnotenBezeichnungFromOsm(point.lon, point.lat, {
+          originalCoordinate: point.originalCoordinate ?? null
+        }),
+        generateAdministrativeFieldsFromOsm(point.lon, point.lat, {
+          originalCoordinate: point.originalCoordinate ?? null
+        })
+      ]);
+
+      if (requestId !== osmBezeichnungRequestId || draftMode !== 'create') {
+        return;
+      }
+
+      if (suggestion) {
+        if (force || !bezeichnung.trim()) {
+          bezeichnung = suggestion;
+        }
+      }
+
+      if (administrativeFields.kreis && (force || !kreis.trim())) {
+        kreis = administrativeFields.kreis;
+      }
+
+      if (administrativeFields.kommune && (force || !kommune.trim())) {
+        kommune = administrativeFields.kommune;
+      }
+
+      if (!suggestion && !administrativeFields.kreis && !administrativeFields.kommune) {
+        osmBezeichnungStatus = 'empty';
+      } else {
+        osmBezeichnungStatus = 'idle';
+      }
+    } catch {
+      if (requestId === osmBezeichnungRequestId) {
+        osmBezeichnungStatus = 'error';
+      }
+    }
   }
 
   function handleEditKnotenSelect(knotenId: string) {
@@ -366,6 +430,8 @@
     editingKnotenId = knoten.id;
     knotenNr = knoten.formData?.knotenNr ?? knoten.subtitle ?? '';
     bezeichnung = knoten.formData?.bezeichnung ?? '';
+    kreis = knoten.formData?.kreis ?? '';
+    kommune = knoten.formData?.kommune ?? '';
     status = knoten.status || 'bestand';
     knotenpunktNr = knotenpunktFieldValue(knoten.formData?.knotenpunktNr);
     bemerkung = knoten.formData?.bemerkung ?? '';
@@ -795,6 +861,35 @@
                 <span>Bezeichnung</span>
                 <input name="bezeichnung" bind:value={bezeichnung} />
               </label>
+
+              <label class="field">
+                <span>Kreis</span>
+                <input name="kreis" bind:value={kreis} />
+              </label>
+
+              <label class="field">
+                <span>Kommune</span>
+                <input name="kommune" bind:value={kommune} />
+              </label>
+
+              {#if draftMode === 'create'}
+                <div class="kataster-create-actions">
+                  <button
+                    class="button secondary-button button-small"
+                    type="button"
+                    onclick={() => suggestKnotenBezeichnungFromOsm(draftPoint, true)}
+                    disabled={!draftPoint || osmBezeichnungStatus === 'loading'}
+                  >
+                    {osmBezeichnungStatus === 'loading' ? 'OSM wird abgefragt...' : 'Aus OSM aktualisieren'}
+                  </button>
+                </div>
+
+                {#if osmBezeichnungStatus === 'empty'}
+                  <p class="kataster-create-coordinates">Keine passenden OSM-Daten gefunden.</p>
+                {:else if osmBezeichnungStatus === 'error'}
+                  <p class="kataster-create-coordinates">OSM-Daten konnten nicht geladen werden.</p>
+                {/if}
+              {/if}
 
               <label class="field">
                 <span>Status</span>

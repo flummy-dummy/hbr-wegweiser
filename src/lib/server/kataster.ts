@@ -64,6 +64,8 @@ function mapKatasterRecord(
       formData: {
         knotenNr: stringField(record, ['knoten_nr']),
         bezeichnung: stringField(record, ['bezeichnung']),
+        kreis: stringField(record, ['kreis']),
+        kommune: stringField(record, ['kommune']),
         bemerkung: stringField(record, ['bemerkung']),
         aktiv: record.aktiv === true,
         knotenpunktNr: numberField(record, 'knotenpunkt_nr')

@@ -33,6 +33,8 @@ export type KatasterMapRecord = {
   formData?: {
     knotenNr?: string;
     bezeichnung?: string;
+    kreis?: string;
+    kommune?: string;
     bemerkung?: string;
     aktiv?: boolean;
     knotenpunktNr?: number | null;
