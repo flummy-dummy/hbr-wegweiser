@@ -24,13 +24,37 @@ migrate((app) => {
     );
   }
 
+  if (!pfosten.fields.getByName('pfosten_kennung')) {
+    pfosten.fields.add(
+      new TextField({
+        name: 'pfosten_kennung',
+        required: false
+      })
+    );
+  }
+
+  const pfostenNr = pfosten.fields.getByName('pfosten_nr');
+
+  if (!pfostenNr) {
+    pfosten.fields.add(
+      new TextField({
+        name: 'pfosten_nr',
+        required: true
+      })
+    );
+  } else {
+    pfostenNr.required = true;
+  }
+
   const indexes = Array.isArray(pfosten.indexes) ? pfosten.indexes : [];
-  pfosten.indexes = indexes.filter((indexSql) => !/idx_pfosten_pfosten_nr\b/i.test(indexSql));
+  pfosten.indexes = indexes.filter(
+    (indexSql) => !/idx_pfosten_pfosten_nr\b/i.test(indexSql) && !/idx_pfosten_pfosten_kennung\b/i.test(indexSql)
+  );
 
   if (!pfosten.indexes.some((indexSql) => /idx_pfosten_pfosten_kennung\b/i.test(indexSql))) {
     pfosten.indexes = [
       ...pfosten.indexes,
-      'CREATE UNIQUE INDEX idx_pfosten_pfosten_kennung ON pfosten (pfosten_kennung)'
+      "CREATE UNIQUE INDEX idx_pfosten_pfosten_kennung ON pfosten (pfosten_kennung) WHERE pfosten_kennung != ''"
     ];
   }
 

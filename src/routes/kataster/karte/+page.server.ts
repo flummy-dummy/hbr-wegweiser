@@ -7,6 +7,27 @@ import type { Actions, PageServerLoad } from './$types';
 type PocketBaseClient = PocketBase;
 type RecordPayload = Record<string, unknown>;
 
+const KNOWN_COLLECTION_FIELDS: Record<string, Set<string>> = {
+  pfosten: new Set([
+    'knoten',
+    'pfosten_index',
+    'pfosten_kennung',
+    'pfosten_nr',
+    'nrw_raw_value',
+    'nrw_object_id',
+    'bestand_status',
+    'typ',
+    'pfosten_typ',
+    'bemerkung',
+    'material',
+    'aktiv',
+    'geom_typ',
+    'geom_json',
+    'lon',
+    'lat'
+  ])
+};
+
 export const load: PageServerLoad = async ({ locals }) => {
   return await loadKatasterMapData(locals.pb);
 };
@@ -28,6 +49,10 @@ function parseNumberInput(raw: string): number | null {
 function parsePositiveIntegerInput(raw: string): number | null {
   const parsed = parseNumberInput(raw);
   return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function createPfostenKennung(knotenKennung: string, pfostenIndex: number): string {
+  return knotenKennung ? `${knotenKennung}-${pfostenIndex}` : '';
 }
 
 function normalizeOfficialKnotenNr(value: string): string {
@@ -71,6 +96,22 @@ function describePocketBaseError(error: unknown, fallback: string): string {
   return message ? `${fallback} ${message}` : fallback;
 }
 
+function logPocketBaseErrorDetails(context: string, error: unknown): void {
+  const pbError = error as {
+    response?: unknown;
+    originalError?: { data?: unknown };
+    cause?: { data?: unknown };
+  };
+
+  console.error(`${context} response`, JSON.stringify(pbError.response ?? null, null, 2));
+  console.error(`${context} originalError.data`, JSON.stringify(pbError.originalError?.data ?? null, null, 2));
+  console.error(`${context} cause.data`, JSON.stringify(pbError.cause?.data ?? null, null, 2));
+}
+
+function logPfostenPayload(payload: RecordPayload): void {
+  console.log('Pfosten payload', JSON.stringify(payload, null, 2));
+}
+
 async function getCollectionFieldNames(pb: PocketBaseClient, collectionName: string): Promise<Set<string> | null> {
   try {
     const collection = (await pb.collections.getOne(collectionName)) as {
@@ -87,8 +128,20 @@ async function getCollectionFieldNames(pb: PocketBaseClient, collectionName: str
       fields.flatMap((field) => (typeof field.name === 'string' && field.name.trim() ? [field.name.trim()] : []))
     );
   } catch (error) {
-    console.warn(`PocketBase-Felder fuer ${collectionName} konnten nicht gelesen werden. Payload wird ungefiltert gesendet.`, error);
-    return null;
+    const status = (error as { status?: number })?.status;
+
+    if (status === 403) {
+      console.debug(
+        `PocketBase-Felder fuer ${collectionName} konnten wegen 403 nicht gelesen werden. Bekanntes Feldmapping wird verwendet.`
+      );
+      return KNOWN_COLLECTION_FIELDS[collectionName] ?? null;
+    }
+
+    console.warn(
+      `PocketBase-Felder fuer ${collectionName} konnten nicht gelesen werden. Bekanntes Feldmapping wird verwendet.`,
+      error
+    );
+    return KNOWN_COLLECTION_FIELDS[collectionName] ?? null;
   }
 }
 
@@ -110,8 +163,12 @@ async function createRecordWithSchemaFallback(
   payload: RecordPayload
 ): Promise<RecordModel> {
   try {
+    if (collectionName === 'pfosten') {
+      logPfostenPayload(payload);
+    }
     return await pb.collection(collectionName).create(payload);
   } catch (error) {
+    logPocketBaseErrorDetails(`PocketBase-Create ${collectionName}`, error);
     const fieldNames = await getCollectionFieldNames(pb, collectionName);
     const filteredPayload = filterPayloadByCollectionFields(payload, fieldNames);
     const removedFields = getRemovedPayloadFields(payload, filteredPayload);
@@ -124,6 +181,9 @@ async function createRecordWithSchemaFallback(
       removedFields
     });
 
+    if (collectionName === 'pfosten') {
+      logPfostenPayload(filteredPayload);
+    }
     return await pb.collection(collectionName).create(filteredPayload);
   }
 }
@@ -135,8 +195,12 @@ async function updateRecordWithSchemaFallback(
   payload: RecordPayload
 ): Promise<RecordModel> {
   try {
+    if (collectionName === 'pfosten') {
+      logPfostenPayload(payload);
+    }
     return await pb.collection(collectionName).update(id, payload);
   } catch (error) {
+    logPocketBaseErrorDetails(`PocketBase-Update ${collectionName}`, error);
     const fieldNames = await getCollectionFieldNames(pb, collectionName);
     const filteredPayload = filterPayloadByCollectionFields(payload, fieldNames);
     const removedFields = getRemovedPayloadFields(payload, filteredPayload);
@@ -149,6 +213,9 @@ async function updateRecordWithSchemaFallback(
       removedFields
     });
 
+    if (collectionName === 'pfosten') {
+      logPfostenPayload(filteredPayload);
+    }
     return await pb.collection(collectionName).update(id, filteredPayload);
   }
 }
@@ -170,19 +237,18 @@ async function createOrUpdateLinkedPfostenFromNrwData(
     return;
   }
 
-  const pfostenNr = data.pfostenNr || data.pfostenKennung;
-
-  if (!pfostenNr) {
+  if (!data.pfostenNr && !data.pfostenKennung) {
     return;
   }
 
   const existingIndex = parsePositiveIntegerInput(data.pfostenNr);
   const pfostenIndex = existingIndex ?? (await getNextPfostenIndex(pb, knotenId));
+  const pfostenKennung = data.pfostenKennung || data.pfostenNr;
   const payload = {
     knoten: knotenId,
     pfosten_index: pfostenIndex,
-    pfosten_kennung: data.pfostenKennung,
-    pfosten_nr: String(pfostenIndex),
+    pfosten_kennung: pfostenKennung,
+    pfosten_nr: pfostenKennung,
     nrw_raw_value: data.nrwRawValue,
     nrw_object_id: data.nrwObjectId,
     bestand_status: 'vorhanden',
@@ -201,9 +267,9 @@ async function createOrUpdateLinkedPfostenFromNrwData(
 
   try {
     const filter = pb.filter('pfosten_kennung = {:pfostenKennung}', {
-      pfostenKennung: data.pfostenKennung
+      pfostenKennung
     });
-    const existingPfosten = data.pfostenKennung
+    const existingPfosten = pfostenKennung
       ? await pb.collection('pfosten').getFirstListItem(filter)
       : null;
 
@@ -862,8 +928,8 @@ export const actions: Actions = {
       const knotenRecord = await pbAdmin.collection('knoten').getOne<RecordModel>(knotenId);
       const pfostenIndex = await getNextPfostenIndex(pbAdmin, knotenId);
       const knotenKennung = getKnotenKennung(knotenRecord);
-      const pfostenNr = String(pfostenIndex);
-      const pfostenKennung = requestedPfostenKennung || (knotenKennung ? `${knotenKennung}-${pfostenIndex}` : '');
+      const pfostenKennung = requestedPfostenKennung || createPfostenKennung(knotenKennung, pfostenIndex);
+      const pfostenNr = pfostenKennung;
       const payload = {
         knoten: knotenId,
         pfosten_index: pfostenIndex,
@@ -948,8 +1014,8 @@ export const actions: Actions = {
     try {
       const knotenRecord = await pbAdmin.collection('knoten').getOne<RecordModel>(knotenId);
       const knotenKennung = getKnotenKennung(knotenRecord);
-      const pfostenNr = String(pfostenIndex);
-      const pfostenKennung = requestedPfostenKennung || (knotenKennung ? `${knotenKennung}-${pfostenIndex}` : '');
+      const pfostenKennung = requestedPfostenKennung || createPfostenKennung(knotenKennung, pfostenIndex);
+      const pfostenNr = pfostenKennung;
       const payload = {
         knoten: knotenId,
         pfosten_index: pfostenIndex,

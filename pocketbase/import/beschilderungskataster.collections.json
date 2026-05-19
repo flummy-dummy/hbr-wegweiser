@@ -53,7 +53,7 @@
       "updateRule": null,
       "deleteRule": null,
       "indexes": [
-        "CREATE UNIQUE INDEX idx_pfosten_pfosten_nr ON pfosten (pfosten_nr)"
+        "CREATE UNIQUE INDEX idx_pfosten_pfosten_kennung ON pfosten (pfosten_kennung) WHERE pfosten_kennung != ''"
       ],
       "fields": [
         {
@@ -64,6 +64,8 @@
           "maxSelect": 1,
           "cascadeDelete": false
         },
+        { "name": "pfosten_index", "type": "number", "required": false, "onlyInt": true, "min": 1 },
+        { "name": "pfosten_kennung", "type": "text", "required": false },
         { "name": "pfosten_nr", "type": "text", "required": true },
         {
           "name": "typ",

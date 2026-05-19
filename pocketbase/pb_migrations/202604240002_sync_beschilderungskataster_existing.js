@@ -128,9 +128,11 @@ migrate((app) => {
 
   const pfosten = ensureCollection({
     name: 'pfosten',
-    indexes: ['CREATE UNIQUE INDEX idx_pfosten_pfosten_nr ON pfosten (pfosten_nr)'],
+    indexes: ["CREATE UNIQUE INDEX idx_pfosten_pfosten_kennung ON pfosten (pfosten_kennung) WHERE pfosten_kennung != ''"],
     fields: [
       { name: 'knoten', type: 'relation', collectionId: knoten.id, maxSelect: 1, cascadeDelete: false },
+      { name: 'pfosten_index', type: 'number', required: false, onlyInt: true, min: 1 },
+      { name: 'pfosten_kennung', type: 'text', required: false },
       { name: 'pfosten_nr', type: 'text', required: true },
       { name: 'typ', type: 'select', required: true, maxSelect: 1, values: ['pfosten', 'laternenmast', 'bestandsmast'] },
       { name: 'material', type: 'select', required: true, maxSelect: 1, values: ['metall', 'holz', 'sonstiges'] },
@@ -143,9 +145,19 @@ migrate((app) => {
       { name: 'aktiv', type: 'bool' }
     ]
   });
-  ensureIndex(pfosten, 'CREATE UNIQUE INDEX idx_pfosten_pfosten_nr ON pfosten (pfosten_nr)');
+  const pfostenIndexes = Array.isArray(pfosten.indexes) ? pfosten.indexes : [];
+  const filteredPfostenIndexes = pfostenIndexes.filter(
+    (indexSql) => !/idx_pfosten_pfosten_nr\b/i.test(indexSql)
+  );
+  if (filteredPfostenIndexes.length !== pfostenIndexes.length) {
+    pfosten.indexes = filteredPfostenIndexes;
+    app.save(pfosten);
+  }
+  ensureIndex(pfosten, "CREATE UNIQUE INDEX idx_pfosten_pfosten_kennung ON pfosten (pfosten_kennung) WHERE pfosten_kennung != ''");
   for (const field of [
     { name: 'knoten', type: 'relation', collectionId: knoten.id, maxSelect: 1, cascadeDelete: false },
+    { name: 'pfosten_index', type: 'number', required: false, onlyInt: true, min: 1 },
+    { name: 'pfosten_kennung', type: 'text', required: false },
     { name: 'pfosten_nr', type: 'text', required: true },
     { name: 'typ', type: 'select', required: true, maxSelect: 1, values: ['pfosten', 'laternenmast', 'bestandsmast'] },
     { name: 'material', type: 'select', required: true, maxSelect: 1, values: ['metall', 'holz', 'sonstiges'] },

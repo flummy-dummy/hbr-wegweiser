@@ -10,6 +10,10 @@ function stringField(record: RecordModel, fields: string[], fallback = ''): stri
     if (typeof value === 'string' && value.trim()) {
       return value.trim();
     }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
   }
 
   return fallback;
