@@ -5,6 +5,7 @@ import PocketBase, { type RecordModel } from 'pocketbase';
 import type { Actions, PageServerLoad } from './$types';
 
 type PocketBaseClient = PocketBase;
+type RecordPayload = Record<string, unknown>;
 
 export const load: PageServerLoad = async ({ locals }) => {
   return await loadKatasterMapData(locals.pb);
@@ -22,6 +23,278 @@ function parseNumberInput(raw: string): number | null {
 
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePositiveIntegerInput(raw: string): number | null {
+  const parsed = parseNumberInput(raw);
+  return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeOfficialKnotenNr(value: string): string {
+  const normalized = value.trim();
+  return /^[1-9]\d{6,8}$/.test(normalized) ? normalized : '';
+}
+
+function describePocketBaseError(error: unknown, fallback: string): string {
+  const response = error as {
+    message?: string;
+    response?: {
+      message?: string;
+      data?: Record<string, { message?: string; code?: string } | string>;
+    };
+    data?: Record<string, { message?: string; code?: string } | string>;
+  };
+  const data = response.response?.data ?? response.data;
+  const fieldMessages = data
+    ? Object.entries(data).flatMap(([field, detail]) => {
+        if (typeof detail === 'string') {
+          return [`${field}: ${detail}`];
+        }
+
+        if (detail?.message) {
+          return [`${field}: ${detail.message}`];
+        }
+
+        if (detail?.code) {
+          return [`${field}: ${detail.code}`];
+        }
+
+        return [];
+      })
+    : [];
+  const message = response.response?.message ?? response.message;
+
+  if (fieldMessages.length) {
+    return `${fallback} ${fieldMessages.join('; ')}`;
+  }
+
+  return message ? `${fallback} ${message}` : fallback;
+}
+
+async function getCollectionFieldNames(pb: PocketBaseClient, collectionName: string): Promise<Set<string> | null> {
+  try {
+    const collection = (await pb.collections.getOne(collectionName)) as {
+      fields?: Array<{ name?: unknown }>;
+      schema?: Array<{ name?: unknown }>;
+    };
+    const fields = Array.isArray(collection.fields) ? collection.fields : collection.schema;
+
+    if (!Array.isArray(fields)) {
+      return null;
+    }
+
+    return new Set(
+      fields.flatMap((field) => (typeof field.name === 'string' && field.name.trim() ? [field.name.trim()] : []))
+    );
+  } catch (error) {
+    console.warn(`PocketBase-Felder fuer ${collectionName} konnten nicht gelesen werden. Payload wird ungefiltert gesendet.`, error);
+    return null;
+  }
+}
+
+function filterPayloadByCollectionFields(payload: RecordPayload, fieldNames: Set<string> | null): RecordPayload {
+  if (!fieldNames) {
+    return payload;
+  }
+
+  return Object.fromEntries(Object.entries(payload).filter(([field]) => fieldNames.has(field)));
+}
+
+function getRemovedPayloadFields(payload: RecordPayload, filteredPayload: RecordPayload): string[] {
+  return Object.keys(payload).filter((field) => !(field in filteredPayload));
+}
+
+async function createRecordWithSchemaFallback(
+  pb: PocketBaseClient,
+  collectionName: string,
+  payload: RecordPayload
+): Promise<RecordModel> {
+  try {
+    return await pb.collection(collectionName).create(payload);
+  } catch (error) {
+    const fieldNames = await getCollectionFieldNames(pb, collectionName);
+    const filteredPayload = filterPayloadByCollectionFields(payload, fieldNames);
+    const removedFields = getRemovedPayloadFields(payload, filteredPayload);
+
+    if (!fieldNames || removedFields.length === 0) {
+      throw error;
+    }
+
+    console.warn(`PocketBase-Create fuer ${collectionName} wird ohne unbekannte Felder wiederholt.`, {
+      removedFields
+    });
+
+    return await pb.collection(collectionName).create(filteredPayload);
+  }
+}
+
+async function updateRecordWithSchemaFallback(
+  pb: PocketBaseClient,
+  collectionName: string,
+  id: string,
+  payload: RecordPayload
+): Promise<RecordModel> {
+  try {
+    return await pb.collection(collectionName).update(id, payload);
+  } catch (error) {
+    const fieldNames = await getCollectionFieldNames(pb, collectionName);
+    const filteredPayload = filterPayloadByCollectionFields(payload, fieldNames);
+    const removedFields = getRemovedPayloadFields(payload, filteredPayload);
+
+    if (!fieldNames || removedFields.length === 0) {
+      throw error;
+    }
+
+    console.warn(`PocketBase-Update fuer ${collectionName} wird ohne unbekannte Felder wiederholt.`, {
+      removedFields
+    });
+
+    return await pb.collection(collectionName).update(id, filteredPayload);
+  }
+}
+
+async function createOrUpdateLinkedPfostenFromNrwData(
+  pb: PocketBaseClient,
+  knotenId: string,
+  data: {
+    lon: number;
+    lat: number;
+    pfostenKennung: string;
+    pfostenNr: string;
+    nrwRawValue: string;
+    nrwObjectId: string;
+    bemerkung?: string;
+  }
+) {
+  if (!data.pfostenKennung && !data.pfostenNr && !data.nrwRawValue && !data.nrwObjectId) {
+    return;
+  }
+
+  const pfostenNr = data.pfostenNr || data.pfostenKennung;
+
+  if (!pfostenNr) {
+    return;
+  }
+
+  const existingIndex = parsePositiveIntegerInput(data.pfostenNr);
+  const pfostenIndex = existingIndex ?? (await getNextPfostenIndex(pb, knotenId));
+  const payload = {
+    knoten: knotenId,
+    pfosten_index: pfostenIndex,
+    pfosten_kennung: data.pfostenKennung,
+    pfosten_nr: String(pfostenIndex),
+    nrw_raw_value: data.nrwRawValue,
+    nrw_object_id: data.nrwObjectId,
+    bestand_status: 'vorhanden',
+    typ: 'bestandsmast',
+    bemerkung: data.bemerkung ?? '',
+    material: 'metall',
+    aktiv: true,
+    geom_typ: 'Point',
+    geom_json: {
+      type: 'Point',
+      coordinates: [data.lon, data.lat]
+    },
+    lon: data.lon,
+    lat: data.lat
+  };
+
+  try {
+    const filter = pb.filter('pfosten_kennung = {:pfostenKennung}', {
+      pfostenKennung: data.pfostenKennung
+    });
+    const existingPfosten = data.pfostenKennung
+      ? await pb.collection('pfosten').getFirstListItem(filter)
+      : null;
+
+    if (existingPfosten?.id) {
+      console.log('TODO DEBUG NRW-KATASTER Pfosten-Update-Payload.', payload);
+      await updateRecordWithSchemaFallback(pb, 'pfosten', existingPfosten.id, payload);
+      return;
+    }
+  } catch (error) {
+    if ((error as { status?: number })?.status !== 404) {
+      throw error;
+    }
+  }
+
+  console.log('TODO DEBUG NRW-KATASTER Pfosten-Create-Payload.', payload);
+  await createRecordWithSchemaFallback(pb, 'pfosten', payload);
+}
+
+async function createOrUpdatePfostenByKennung(
+  pb: PocketBaseClient,
+  pfostenKennung: string,
+  payload: RecordPayload
+): Promise<'created' | 'updated'> {
+  if (pfostenKennung) {
+    try {
+      const existingPfosten = await pb.collection('pfosten').getFirstListItem<RecordModel>(
+        pb.filter('pfosten_kennung = {:pfostenKennung}', { pfostenKennung })
+      );
+
+      if (existingPfosten?.id) {
+        await updateRecordWithSchemaFallback(pb, 'pfosten', existingPfosten.id, payload);
+        return 'updated';
+      }
+    } catch (error) {
+      if ((error as { status?: number })?.status !== 404) {
+        throw error;
+      }
+    }
+  }
+
+  await createRecordWithSchemaFallback(pb, 'pfosten', payload);
+  return 'created';
+}
+
+function getKnotenKennung(record: RecordModel): string {
+  for (const field of ['knoten_kennung', 'katasterkennung_knoten', 'katasterkennung', 'knoten_nr']) {
+    const value = record[field];
+
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return '';
+}
+
+async function getNextPfostenIndex(pb: PocketBaseClient, knotenId: string): Promise<number> {
+  const records = await pb.collection('pfosten').getFullList<RecordModel>({
+    filter: pb.filter('knoten = {:knotenId}', { knotenId })
+  });
+  const indexes = records
+    .map((record) => parsePositiveIntegerInput(String(record.pfosten_index ?? record.pfosten_nr ?? '')))
+    .filter((value): value is number => value !== null);
+
+  return Math.max(0, ...indexes) + 1;
+}
+
+async function ensurePfostenKennungIsAvailable(
+  pb: PocketBaseClient,
+  pfostenKennung: string,
+  currentId = ''
+): Promise<void> {
+  if (!pfostenKennung) {
+    return;
+  }
+
+  try {
+    const existing = await pb.collection('pfosten').getFirstListItem<RecordModel>(
+      pb.filter('pfosten_kennung = {:pfostenKennung}', { pfostenKennung })
+    );
+
+    if (existing?.id && existing.id !== currentId) {
+      throw new Error(`Pfostenkennung ${pfostenKennung} ist bereits vergeben.`);
+    }
+  } catch (error) {
+    if ((error as { status?: number })?.status === 404) {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function parseGeomJson(value: unknown): Record<string, unknown> | null {
@@ -240,6 +513,17 @@ export const actions: Actions = {
     const bezeichnung = formValue(values, 'bezeichnung');
     const kreis = formValue(values, 'kreis');
     const kommune = formValue(values, 'kommune');
+    const katasterkennung = formValue(values, 'katasterkennung');
+    const knotenKennung = formValue(values, 'knoten_kennung');
+    const pfostenKennung = formValue(values, 'pfosten_kennung');
+    const pfostenNr = formValue(values, 'pfosten_nr');
+    const nrwPoiNr = formValue(values, 'nrw_poi_nr');
+    const nrwTyp = formValue(values, 'nrw_typ');
+    const nrwKommune = formValue(values, 'nrw_kommune');
+    const nrwSourceUrl = formValue(values, 'nrw_source_url');
+    const nrwRawValue = formValue(values, 'nrw_raw_value');
+    const nrwObjectId = formValue(values, 'nrw_object_id');
+    const offizielleKnotenNr = normalizeOfficialKnotenNr(formValue(values, 'offizielle_knoten_nr'));
     const status = formValue(values, 'status');
     const knotenpunktNrRaw = formValue(values, 'knotenpunkt_nr');
     const bemerkung = formValue(values, 'bemerkung');
@@ -302,20 +586,53 @@ export const actions: Actions = {
       coordinates: [lon, lat]
     };
 
+    const payload = {
+      knoten_nr: knotenNr,
+      bezeichnung,
+      kreis,
+      kommune,
+      katasterkennung,
+      katasterkennung_knoten: knotenKennung,
+      knoten_kennung: knotenKennung,
+      pfosten_kennung: pfostenKennung,
+      pfosten_nr: pfostenNr,
+      nrw_poi_nr: nrwPoiNr,
+      nrw_typ: nrwTyp,
+      nrw_kommune: nrwKommune,
+      nrw_source_url: nrwSourceUrl,
+      nrw_raw_value: nrwRawValue,
+      nrw_object_id: nrwObjectId,
+      ...(offizielleKnotenNr ? { offizielle_knoten_nr: offizielleKnotenNr } : {}),
+      status,
+      knotenpunkt_nr: knotenpunktNr,
+      bemerkung,
+      aktiv,
+      geom_typ: 'Point',
+      geom_json: geomJson,
+      lon,
+      lat
+    };
+
     try {
-      const createdRecord = await pbAdmin.collection('knoten').create({
-        knoten_nr: knotenNr,
-        bezeichnung,
-        kreis,
-        kommune,
-        status,
-        knotenpunkt_nr: knotenpunktNr,
-        bemerkung,
-        aktiv,
-        geom_typ: 'Point',
-        geom_json: geomJson,
+      console.log('TODO DEBUG NRW-KATASTER Knoten-Create-Payload.', {
+        knoten_kennung: payload.knoten_kennung,
+        pfosten_kennung: payload.pfosten_kennung,
+        pfosten_nr: payload.pfosten_nr,
+        nrw_poi_nr: payload.nrw_poi_nr,
+        nrw_raw_value: payload.nrw_raw_value,
+        nrw_object_id: payload.nrw_object_id,
+        offizielle_knoten_nr: payload.offizielle_knoten_nr,
+        knoten_nr: payload.knoten_nr
+      });
+      const createdRecord = await createRecordWithSchemaFallback(pbAdmin, 'knoten', payload);
+      await createOrUpdateLinkedPfostenFromNrwData(pbAdmin, createdRecord.id, {
         lon,
-        lat
+        lat,
+        pfostenKennung,
+        pfostenNr,
+        nrwRawValue,
+        nrwObjectId,
+        bemerkung: 'Automatisch aus NRW-Katasterdaten angelegt.'
       });
 
       return {
@@ -330,7 +647,7 @@ export const actions: Actions = {
       return fail(500, {
         success: false,
         action: 'createKnoten',
-        message: 'Knoten konnte nicht gespeichert werden.',
+        message: describePocketBaseError(error, 'Knoten konnte nicht gespeichert werden.'),
         values: Object.fromEntries(values)
       });
     }
@@ -344,6 +661,17 @@ export const actions: Actions = {
     const bezeichnung = formValue(values, 'bezeichnung');
     const kreis = formValue(values, 'kreis');
     const kommune = formValue(values, 'kommune');
+    const katasterkennung = formValue(values, 'katasterkennung');
+    const knotenKennung = formValue(values, 'knoten_kennung');
+    const pfostenKennung = formValue(values, 'pfosten_kennung');
+    const pfostenNr = formValue(values, 'pfosten_nr');
+    const nrwPoiNr = formValue(values, 'nrw_poi_nr');
+    const nrwTyp = formValue(values, 'nrw_typ');
+    const nrwKommune = formValue(values, 'nrw_kommune');
+    const nrwSourceUrl = formValue(values, 'nrw_source_url');
+    const nrwRawValue = formValue(values, 'nrw_raw_value');
+    const nrwObjectId = formValue(values, 'nrw_object_id');
+    const offizielleKnotenNr = normalizeOfficialKnotenNr(formValue(values, 'offizielle_knoten_nr'));
     const status = formValue(values, 'status');
     const knotenpunktNrRaw = formValue(values, 'knotenpunkt_nr');
     const bemerkung = formValue(values, 'bemerkung');
@@ -415,20 +743,52 @@ export const actions: Actions = {
       coordinates: [lon, lat]
     };
 
+    const payload = {
+      knoten_nr: knotenNr,
+      bezeichnung,
+      kreis,
+      kommune,
+      katasterkennung,
+      katasterkennung_knoten: knotenKennung,
+      knoten_kennung: knotenKennung,
+      pfosten_kennung: pfostenKennung,
+      pfosten_nr: pfostenNr,
+      nrw_poi_nr: nrwPoiNr,
+      nrw_typ: nrwTyp,
+      nrw_kommune: nrwKommune,
+      nrw_source_url: nrwSourceUrl,
+      nrw_raw_value: nrwRawValue,
+      nrw_object_id: nrwObjectId,
+      ...(offizielleKnotenNr ? { offizielle_knoten_nr: offizielleKnotenNr } : {}),
+      status,
+      knotenpunkt_nr: knotenpunktNr,
+      bemerkung,
+      aktiv,
+      geom_typ: 'Point',
+      geom_json: geomJson,
+      lon,
+      lat
+    };
+
     try {
-      await pbAdmin.collection('knoten').update(id, {
-        knoten_nr: knotenNr,
-        bezeichnung,
-        kreis,
-        kommune,
-        status,
-        knotenpunkt_nr: knotenpunktNr,
-        bemerkung,
-        aktiv,
-        geom_typ: 'Point',
-        geom_json: geomJson,
+      console.log('TODO DEBUG NRW-KATASTER Knoten-Update-Payload.', {
+        knoten_kennung: payload.knoten_kennung,
+        pfosten_kennung: payload.pfosten_kennung,
+        pfosten_nr: payload.pfosten_nr,
+        nrw_poi_nr: payload.nrw_poi_nr,
+        nrw_raw_value: payload.nrw_raw_value,
+        nrw_object_id: payload.nrw_object_id,
+        offizielle_knoten_nr: payload.offizielle_knoten_nr,
+        knoten_nr: payload.knoten_nr
+      });
+      await updateRecordWithSchemaFallback(pbAdmin, 'knoten', id, payload);
+      await createOrUpdateLinkedPfostenFromNrwData(pbAdmin, id, {
         lon,
-        lat
+        lat,
+        pfostenKennung,
+        pfostenNr,
+        nrwRawValue,
+        nrwObjectId
       });
 
       await syncConnectedKantenForMovedKnoten(pbAdmin, id, lon, lat);
@@ -444,7 +804,224 @@ export const actions: Actions = {
       return fail(500, {
         success: false,
         action: 'updateKnoten',
-        message: 'Knoten konnte nicht aktualisiert werden.',
+        message: describePocketBaseError(error, 'Knoten konnte nicht aktualisiert werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
+  createPfosten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
+    const knotenId = formValue(values, 'knoten');
+    const requestedPfostenKennung = formValue(values, 'pfosten_kennung');
+    const typ = formValue(values, 'typ');
+    const material = formValue(values, 'material');
+    const bestandStatus = formValue(values, 'bestand_status') || 'vorhanden';
+    const bemerkung = formValue(values, 'bemerkung');
+    const lonRaw = formValue(values, 'lon');
+    const latRaw = formValue(values, 'lat');
+    const aktiv = values.get('aktiv') === 'on';
+
+    if (!knotenId) {
+      return fail(400, {
+        success: false,
+        action: 'createPfosten',
+        message: 'Der zugehoerige Knoten fehlt.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    if (!typ || !material || !bestandStatus) {
+      return fail(400, {
+        success: false,
+        action: 'createPfosten',
+        message: 'Typ, Material und Bestand-Status sind erforderlich.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    const lon = parseNumberInput(lonRaw);
+    const lat = parseNumberInput(latRaw);
+
+    if (lon === null || lat === null) {
+      return fail(400, {
+        success: false,
+        action: 'createPfosten',
+        message: 'Die Pfostenkoordinaten sind ungueltig.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    const geomJson = {
+      type: 'Point',
+      coordinates: [lon, lat]
+    };
+
+    try {
+      const knotenRecord = await pbAdmin.collection('knoten').getOne<RecordModel>(knotenId);
+      const pfostenIndex = await getNextPfostenIndex(pbAdmin, knotenId);
+      const knotenKennung = getKnotenKennung(knotenRecord);
+      const pfostenNr = String(pfostenIndex);
+      const pfostenKennung = requestedPfostenKennung || (knotenKennung ? `${knotenKennung}-${pfostenIndex}` : '');
+      const payload = {
+        knoten: knotenId,
+        pfosten_index: pfostenIndex,
+        pfosten_kennung: pfostenKennung,
+        pfosten_nr: pfostenNr,
+        typ,
+        pfosten_typ: typ,
+        material,
+        bemerkung,
+        aktiv,
+        bestand_status: bestandStatus,
+        geom_typ: 'Point',
+        geom_json: geomJson,
+        lon,
+        lat
+      };
+
+      await ensurePfostenKennungIsAvailable(pbAdmin, pfostenKennung);
+      await createRecordWithSchemaFallback(pbAdmin, 'pfosten', payload);
+      return {
+        success: true,
+        action: 'createPfosten',
+        message: 'Pfosten wurde gespeichert.'
+      };
+    } catch (error) {
+      console.error('Pfosten konnte nicht gespeichert werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'createPfosten',
+        message: describePocketBaseError(error, 'Pfosten konnte nicht gespeichert werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
+  updatePfosten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
+    const id = formValue(values, 'id');
+    const knotenId = formValue(values, 'knoten');
+    const pfostenIndex = parsePositiveIntegerInput(formValue(values, 'pfosten_index'));
+    const requestedPfostenKennung = formValue(values, 'pfosten_kennung');
+    const typ = formValue(values, 'typ');
+    const material = formValue(values, 'material');
+    const bestandStatus = formValue(values, 'bestand_status') || 'vorhanden';
+    const bemerkung = formValue(values, 'bemerkung');
+    const lonRaw = formValue(values, 'lon');
+    const latRaw = formValue(values, 'lat');
+    const aktiv = values.get('aktiv') === 'on';
+
+    if (!id || !knotenId || pfostenIndex === null) {
+      return fail(400, {
+        success: false,
+        action: 'updatePfosten',
+        message: 'Pfosten-ID, Knotenrelation und laufende Pfostennummer sind erforderlich.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    if (!typ || !material || !bestandStatus) {
+      return fail(400, {
+        success: false,
+        action: 'updatePfosten',
+        message: 'Typ, Material und Bestand-Status sind erforderlich.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    const lon = parseNumberInput(lonRaw);
+    const lat = parseNumberInput(latRaw);
+
+    if (lon === null || lat === null) {
+      return fail(400, {
+        success: false,
+        action: 'updatePfosten',
+        message: 'Die Pfostenkoordinaten sind ungueltig.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      const knotenRecord = await pbAdmin.collection('knoten').getOne<RecordModel>(knotenId);
+      const knotenKennung = getKnotenKennung(knotenRecord);
+      const pfostenNr = String(pfostenIndex);
+      const pfostenKennung = requestedPfostenKennung || (knotenKennung ? `${knotenKennung}-${pfostenIndex}` : '');
+      const payload = {
+        knoten: knotenId,
+        pfosten_index: pfostenIndex,
+        pfosten_kennung: pfostenKennung,
+        pfosten_nr: pfostenNr,
+        typ,
+        pfosten_typ: typ,
+        material,
+        bemerkung,
+        aktiv,
+        bestand_status: bestandStatus,
+        geom_typ: 'Point',
+        geom_json: {
+          type: 'Point',
+          coordinates: [lon, lat]
+        },
+        lon,
+        lat
+      };
+
+      await ensurePfostenKennungIsAvailable(pbAdmin, pfostenKennung, id);
+      await updateRecordWithSchemaFallback(pbAdmin, 'pfosten', id, payload);
+
+      return {
+        success: true,
+        action: 'updatePfosten',
+        message: 'Pfosten wurde aktualisiert.'
+      };
+    } catch (error) {
+      console.error('Pfosten konnte nicht aktualisiert werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'updatePfosten',
+        message: describePocketBaseError(error, 'Pfosten konnte nicht aktualisiert werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
+  deletePfosten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'delete');
+    const values = await event.request.formData();
+    const id = formValue(values, 'id');
+
+    if (!id) {
+      return fail(400, {
+        success: false,
+        action: 'deletePfosten',
+        message: 'Die Pfosten-ID fehlt.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      await updateRecordWithSchemaFallback(pbAdmin, 'pfosten', id, {
+        bestand_status: 'zu_entfernen',
+        aktiv: false
+      });
+
+      return {
+        success: true,
+        action: 'deletePfosten',
+        message: 'Pfosten wurde geloescht.'
+      };
+    } catch (error) {
+      console.error('Pfosten konnte nicht geloescht werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'deletePfosten',
+        message: describePocketBaseError(error, 'Pfosten konnte nicht geloescht werden.'),
         values: Object.fromEntries(values)
       });
     }

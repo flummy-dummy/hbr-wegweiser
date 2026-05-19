@@ -5,7 +5,7 @@ import type Geometry from 'ol/geom/Geometry';
 import Point from 'ol/geom/Point';
 import { boundingExtent } from 'ol/extent';
 import { fromLonLat } from 'ol/proj';
-import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style';
+import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style } from 'ol/style';
 
 const geoJsonFormat = new GeoJSON({
   dataProjection: 'EPSG:4326',
@@ -55,7 +55,8 @@ export function createFeaturesFromRecords(records: KatasterMapRecord[]): Feature
         subtitle: record.subtitle ?? '',
         status: record.status ?? '',
         groupKey: record.groupKey ?? '',
-        color: record.color ?? ''
+        color: record.color ?? '',
+        formData: record.formData ?? {}
       });
       return feature;
     })
@@ -78,17 +79,21 @@ export function getKatasterStyle(collection: KatasterMapRecord['collection']): S
         radius: 6,
         fill: new Fill({ color: '#d7001f' }),
         stroke: new Stroke({ color: '#ffffff', width: 2 })
-      })
+      }),
+      zIndex: 20
     });
   }
 
   if (collection === 'pfosten') {
     return new Style({
-      image: new CircleStyle({
-        radius: 5,
+      image: new RegularShape({
+        points: 4,
+        radius: 7,
+        angle: Math.PI / 4,
         fill: new Fill({ color: '#2457a6' }),
         stroke: new Stroke({ color: '#ffffff', width: 2 })
-      })
+      }),
+      zIndex: 30
     });
   }
 
@@ -131,10 +136,49 @@ export function getThemenrouteStyle(feature: Feature<Geometry>): Style {
 }
 
 export function getFeatureInfo(feature: Feature<Geometry>): KatasterFeatureInfo {
+  const collection = feature.get('collection');
+  const formData = feature.get('formData') as KatasterMapRecord['formData'] | undefined;
+  const details: KatasterFeatureInfo['details'] = [];
+
+  if (collection === 'knoten') {
+    const entries = [
+      ['Knotenkennung', formData?.knotenKennung],
+      ['Knoten-Nr.', formData?.knotenNr],
+      ['Kommune', formData?.kommune],
+      ['Kreis', formData?.kreis],
+      ['NRW-POI-Nr.', formData?.nrwPoiNr]
+    ] as const;
+    entries.forEach(([label, value]) => {
+      if (value) {
+        details.push({ label, value });
+      }
+    });
+  }
+
+  if (collection === 'pfosten') {
+    const entries = [
+      ['Pfostenkennung', formData?.pfostenKennung],
+      ['Laufende Pfostennummer', formData?.pfostenIndex ? String(formData.pfostenIndex) : undefined],
+      ['Pfosten-Nr.', formData?.pfostenNr],
+      ['Typ', formData?.pfostenTyp],
+      ['Material', formData?.pfostenMaterial],
+      ['Foto-Kennung', formData?.pfostenFotoKennung],
+      ['NRW-Rohwert', formData?.nrwRawValue],
+      ['NRW-Object-ID', formData?.nrwObjectId]
+    ] as const;
+    entries.forEach(([label, value]) => {
+      if (value) {
+        details.push({ label, value });
+      }
+    });
+  }
+
   return {
-    collection: feature.get('collection'),
+    id: feature.get('id') || String(feature.getId() ?? ''),
+    collection,
     title: feature.get('title'),
     subtitle: feature.get('subtitle') || undefined,
-    status: feature.get('status') || 'ohne Status'
+    status: feature.get('status') || 'ohne Status',
+    details
   };
 }

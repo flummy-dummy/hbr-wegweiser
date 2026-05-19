@@ -15,6 +15,24 @@ function stringField(record: RecordModel, fields: string[], fallback = ''): stri
   return fallback;
 }
 
+function officialKnotenNrField(record: RecordModel, fields: string[], fallback = ''): string {
+  for (const field of fields) {
+    const value = record[field];
+    const normalized =
+      typeof value === 'number' && Number.isFinite(value)
+        ? String(Math.trunc(value))
+        : typeof value === 'string'
+          ? value.trim()
+          : '';
+
+    if (/^[1-9]\d{6,8}$/.test(normalized)) {
+      return normalized;
+    }
+  }
+
+  return fallback;
+}
+
 function numberField(record: RecordModel, field: string): number | null {
   const value = record[field];
 
@@ -47,9 +65,26 @@ function parseGeomJson(value: unknown): GeoJsonGeometry | null {
   return typeof value === 'object' ? (value as GeoJsonGeometry) : null;
 }
 
+function relationIdField(record: RecordModel, field: string): string {
+  const value = record[field];
+
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  if (Array.isArray(value) && typeof value[0] === 'string' && value[0].trim()) {
+    return value[0].trim();
+  }
+
+  return '';
+}
+
 function mapKatasterRecord(
   collection: KatasterCollectionType,
-  record: RecordModel
+  record: RecordModel,
+  options: {
+    knotenById?: Map<string, KatasterMapRecord>;
+  } = {}
 ): KatasterMapRecord {
   if (collection === 'knoten') {
     return {
@@ -66,6 +101,17 @@ function mapKatasterRecord(
         bezeichnung: stringField(record, ['bezeichnung']),
         kreis: stringField(record, ['kreis']),
         kommune: stringField(record, ['kommune']),
+        katasterkennung: stringField(record, ['katasterkennung']),
+        knotenKennung: stringField(record, ['knoten_kennung', 'katasterkennung_knoten', 'katasterkennung']),
+        pfostenKennung: stringField(record, ['pfosten_kennung']),
+        pfostenNr: stringField(record, ['pfosten_nr']),
+        nrwPoiNr: stringField(record, ['nrw_poi_nr']),
+        nrwTyp: stringField(record, ['nrw_typ']),
+        nrwKommune: stringField(record, ['nrw_kommune']),
+        nrwSourceUrl: stringField(record, ['nrw_source_url']),
+        nrwRawValue: stringField(record, ['nrw_raw_value']),
+        nrwObjectId: stringField(record, ['nrw_object_id']),
+        offizielleKnotenNr: officialKnotenNrField(record, ['offizielle_knoten_nr']),
         bemerkung: stringField(record, ['bemerkung']),
         aktiv: record.aktiv === true,
         knotenpunktNr: numberField(record, 'knotenpunkt_nr')
@@ -74,15 +120,37 @@ function mapKatasterRecord(
   }
 
   if (collection === 'pfosten') {
+    const linkedKnotenId = relationIdField(record, 'knoten');
+    const fallbackKnoten = linkedKnotenId ? options.knotenById?.get(linkedKnotenId) : null;
+    const geomJson = parseGeomJson(record.geom_json);
+    const lon = numberField(record, 'lon');
+    const lat = numberField(record, 'lat');
+    // TODO NRW-PFOSTEN-GEOMETRIE: Wenn ein Pfosten noch keine eigene Geometrie hat,
+    // wird vorlaeufig die Knotenposition verwendet, damit er als eigenes Objekt sichtbar ist.
+    const fallbackGeomJson = geomJson ?? fallbackKnoten?.geomJson ?? null;
+
     return {
       id: String(record.id ?? ''),
       collection,
-      title: stringField(record, ['pfosten_nr', 'typ'], 'Pfosten'),
-      subtitle: stringField(record, ['typ']),
+      title: stringField(record, ['pfosten_kennung', 'pfosten_nr', 'typ'], 'Pfosten'),
+      subtitle: stringField(record, ['pfosten_nr', 'pfosten_index', 'typ']),
       status: stringField(record, ['bestand_status']),
-      geomJson: parseGeomJson(record.geom_json),
-      lon: numberField(record, 'lon'),
-      lat: numberField(record, 'lat')
+      geomJson: fallbackGeomJson,
+      lon: lon ?? fallbackKnoten?.lon ?? null,
+      lat: lat ?? fallbackKnoten?.lat ?? null,
+      formData: {
+        linkedKnotenId,
+        pfostenKennung: stringField(record, ['pfosten_kennung']),
+        pfostenNr: stringField(record, ['pfosten_nr']),
+        pfostenIndex: numberField(record, 'pfosten_index'),
+        pfostenTyp: stringField(record, ['pfosten_typ', 'typ']),
+        pfostenMaterial: stringField(record, ['material']),
+        pfostenFotoKennung: stringField(record, ['pfosten_foto_kennung', 'foto_kennung']),
+        nrwRawValue: stringField(record, ['nrw_raw_value']),
+        nrwObjectId: stringField(record, ['nrw_object_id']),
+        bemerkung: stringField(record, ['bemerkung']),
+        aktiv: record.aktiv === true
+      }
     };
   }
 
@@ -130,7 +198,7 @@ export async function loadKatasterMapData(pb: PocketBase | null = createPocketBa
   try {
     const [knoten, pfosten, kanten, themenrouten, themenrouteKanten, verbindungen, verbindungKanten] = await Promise.all([
       pb.collection('knoten').getFullList<RecordModel>({ sort: 'knoten_nr,bezeichnung' }),
-      pb.collection('pfosten').getFullList<RecordModel>({ sort: 'pfosten_nr' }),
+      pb.collection('pfosten').getFullList<RecordModel>({ sort: 'pfosten_index,pfosten_nr' }),
       pb.collection('kanten').getFullList<RecordModel>({ sort: 'kanten_nr' }),
       pb.collection('themenrouten').getFullList<RecordModel>({ sort: 'sortierung,name' }),
       pb.collection('themenroute_kanten').getFullList<RecordModel>({ sort: 'sortierung' }),
@@ -219,9 +287,13 @@ export async function loadKatasterMapData(pb: PocketBase | null = createPocketBa
         ];
       });
 
+    const mappedKnoten = knoten.map((record) => mapKatasterRecord('knoten', record));
+    const knotenById = new Map(mappedKnoten.map((record) => [record.id, record]));
+    const mappedPfosten = pfosten.map((record) => mapKatasterRecord('pfosten', record, { knotenById }));
+
     return {
-      knoten: knoten.map((record) => mapKatasterRecord('knoten', record)),
-      pfosten: pfosten.map((record) => mapKatasterRecord('pfosten', record)),
+      knoten: mappedKnoten,
+      pfosten: mappedPfosten,
       kanten: [...kantenById.values()],
       themenrouten: themenroutenFeatures,
       knotenpunktverbindungen: knotenpunktverbindungenFeatures,

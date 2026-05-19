@@ -35,6 +35,22 @@ export type KatasterMapRecord = {
     bezeichnung?: string;
     kreis?: string;
     kommune?: string;
+    katasterkennung?: string;
+    knotenKennung?: string;
+    pfostenKennung?: string;
+    pfostenNr?: string;
+    pfostenIndex?: number | null;
+    nrwPoiNr?: string;
+    nrwTyp?: string;
+    nrwKommune?: string;
+    nrwSourceUrl?: string;
+    nrwRawValue?: string;
+    nrwObjectId?: string;
+    offizielleKnotenNr?: string;
+    pfostenTyp?: string;
+    pfostenMaterial?: string;
+    pfostenFotoKennung?: string;
+    linkedKnotenId?: string;
     bemerkung?: string;
     aktiv?: boolean;
     knotenpunktNr?: number | null;
@@ -47,8 +63,20 @@ export type KatasterMapRecord = {
 };
 
 export type KatasterFeatureInfo = {
+  id?: string;
   collection: KatasterCollectionType;
   title: string;
   status: string;
   subtitle?: string;
+  details?: Array<{
+    label: string;
+    value: string;
+  }>;
+  relatedPfosten?: Array<{
+    id: string;
+    title: string;
+    subtitle?: string;
+    status?: string;
+    pfostenIndex?: number | null;
+  }>;
 };

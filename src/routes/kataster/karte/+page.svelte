@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import KatasterMap from '$lib/components/KatasterMap.svelte';
   import type { GeoJsonGeometry, KatasterMapRecord } from '$lib/kataster';
+  import { findNrwKatasterkennungForCoordinate } from '$lib/nrw-kataster';
   import {
     generateAdministrativeFieldsFromOsm,
     generateKnotenBezeichnungFromOsm
@@ -16,7 +17,7 @@
     originalCoordinate?: readonly [number, number];
   };
 
-  type DraftMode = 'none' | 'create' | 'edit' | 'create-edge' | 'edit-edge';
+  type DraftMode = 'none' | 'create' | 'edit' | 'create-pfosten' | 'edit-pfosten' | 'create-edge' | 'edit-edge';
 
   type KnotenFormState = {
     success?: boolean;
@@ -158,7 +159,7 @@
   }
 
   function formValues() {
-    return form?.action === 'createKnoten' || form?.action === 'updateKnoten' || form?.action === 'createKante' || form?.action === 'updateKante' || form?.action === 'deleteKnoten' || form?.action === 'deleteKante'
+    return form?.action === 'createKnoten' || form?.action === 'updateKnoten' || form?.action === 'createPfosten' || form?.action === 'updatePfosten' || form?.action === 'deletePfosten' || form?.action === 'createKante' || form?.action === 'updateKante' || form?.action === 'deleteKnoten' || form?.action === 'deleteKante'
       ? form.values
       : undefined;
   }
@@ -170,6 +171,14 @@
 
     if (form?.action === 'updateKnoten') {
       return 'edit';
+    }
+
+    if (form?.action === 'createPfosten') {
+      return 'create-pfosten';
+    }
+
+    if (form?.action === 'updatePfosten' || form?.action === 'deletePfosten') {
+      return 'edit-pfosten';
     }
 
     if (form?.action === 'createKante') {
@@ -197,6 +206,10 @@
 
   function findKanteById(id: string): KatasterMapRecord | null {
     return data.kanten.find((entry) => entry.id === id) ?? null;
+  }
+
+  function findPfostenById(id: string): KatasterMapRecord | null {
+    return data.pfosten.find((entry) => entry.id === id) ?? null;
   }
 
   function geometryToPoints(geometry: GeoJsonGeometry | null): DraftPoint[] {
@@ -267,6 +280,8 @@
   let draftMode = $state<DraftMode>(initialDraftMode);
   let draftPoint = $state<DraftPoint | null>(initialDraftPoint);
   let edgeDraft = $state<EdgeDraft | null>(initialEdgeDraft);
+  let selectedKnotenForPfostenId = $state(stringValue(initialValues, 'knoten'));
+  let editingPfostenId = $state(stringValue(initialValues, 'id'));
   let kantenNr = $state(stringValue(initialValues, 'kanten_nr'));
   let kantenStatus = $state(stringValue(initialValues, 'status') || 'planung');
   let kantenArt = $state(stringValue(initialValues, 'art') || 'netzverbindung');
@@ -278,14 +293,31 @@
   let bezeichnung = $state(stringValue(initialValues, 'bezeichnung'));
   let kreis = $state(stringValue(initialValues, 'kreis'));
   let kommune = $state(stringValue(initialValues, 'kommune'));
+  let katasterkennung = $state(stringValue(initialValues, 'knoten_kennung') || stringValue(initialValues, 'katasterkennung'));
+  let katasterkennungSubmitValue = $state(stringValue(initialValues, 'katasterkennung'));
+  let pfostenKennung = $state(stringValue(initialValues, 'pfosten_kennung'));
+  let pfostenNr = $state(stringValue(initialValues, 'pfosten_nr'));
+  let pfostenIndex = $state(stringValue(initialValues, 'pfosten_index'));
+  let pfostenTyp = $state(stringValue(initialValues, 'pfosten_typ') || stringValue(initialValues, 'typ') || 'bestandsmast');
+  let pfostenMaterial = $state(stringValue(initialValues, 'material') || 'metall');
+  let pfostenBestandStatus = $state(stringValue(initialValues, 'bestand_status') || 'vorhanden');
+  let nrwPoiNr = $state(stringValue(initialValues, 'nrw_poi_nr'));
+  let nrwTyp = $state(stringValue(initialValues, 'nrw_typ'));
+  let nrwKommune = $state(stringValue(initialValues, 'nrw_kommune'));
+  let nrwSourceUrl = $state(stringValue(initialValues, 'nrw_source_url'));
+  let nrwRawValue = $state(stringValue(initialValues, 'nrw_raw_value'));
+  let nrwObjectId = $state(stringValue(initialValues, 'nrw_object_id'));
+  let offizielleKnotenNr = $state(stringValue(initialValues, 'offizielle_knoten_nr'));
   let status = $state(stringValue(initialValues, 'status') || 'bestand');
   let knotenpunktNr = $state(knotenpunktFieldValue(initialValues?.knotenpunkt_nr));
   let bemerkung = $state(stringValue(initialValues, 'bemerkung'));
   let aktiv = $state(stringValue(initialValues, 'aktiv') === 'on');
   let osmBezeichnungStatus = $state<'idle' | 'loading' | 'empty' | 'error'>('idle');
+  let nrwKatasterHinweis = $state('');
   let edgeEditFormElement = $state<HTMLFormElement | null>(null);
   let osmBezeichnungRequestId = 0;
   const canEdit = $derived(page.data.auth?.canEdit === true);
+  const visiblePfosten = $derived(data.pfosten.filter((entry) => entry.status !== 'zu_entfernen'));
 
   const closeDraftOnSuccess: SubmitFunction = () => {
     return async ({ result }) => {
@@ -300,15 +332,33 @@
 
   function resetFormFields() {
     editingKnotenId = '';
+    editingPfostenId = '';
     knotenNr = '';
     bezeichnung = '';
     kreis = '';
     kommune = '';
+    katasterkennung = '';
+    katasterkennungSubmitValue = '';
+    pfostenKennung = '';
+    pfostenNr = '';
+    pfostenIndex = '';
+    pfostenTyp = 'bestandsmast';
+    pfostenMaterial = 'metall';
+    pfostenBestandStatus = 'vorhanden';
+    nrwPoiNr = '';
+    nrwTyp = '';
+    nrwKommune = '';
+    nrwSourceUrl = '';
+    nrwRawValue = '';
+    nrwObjectId = '';
+    offizielleKnotenNr = '';
     status = 'bestand';
     knotenpunktNr = '';
     bemerkung = '';
     aktiv = false;
     osmBezeichnungStatus = 'idle';
+    nrwKatasterHinweis = '';
+    selectedKnotenForPfostenId = '';
   }
 
   function resetEdgeDraft() {
@@ -343,9 +393,92 @@
     resetFormFields();
   }
 
+  function createNextPfostenValues(knoten: KatasterMapRecord): { kennung: string; nr: string; index: string } {
+    const knotenKennung = knoten.formData?.knotenKennung || knoten.formData?.katasterkennung || '';
+    const relatedPfosten = data.pfosten.filter((entry) => {
+      const pfostenKennung = entry.formData?.pfostenKennung || entry.title;
+      return (
+        entry.formData?.linkedKnotenId === knoten.id ||
+        (Boolean(knotenKennung) && pfostenKennung.startsWith(`${knotenKennung}-`))
+      );
+    });
+    const existingNumbers = relatedPfosten
+      .flatMap((entry) => [
+        entry.formData?.pfostenIndex ? String(entry.formData.pfostenIndex) : '',
+        entry.formData?.pfostenNr ?? '',
+        entry.formData?.pfostenKennung ?? '',
+        entry.title,
+        entry.subtitle ?? ''
+      ])
+      .map((value) => Number(String(value).match(/\d+$/)?.[0] ?? ''))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    const nextNumber = Math.max(0, ...existingNumbers) + 1;
+    return {
+      kennung: knotenKennung ? `${knotenKennung}-${nextNumber}` : '',
+      nr: String(nextNumber),
+      index: String(nextNumber)
+    };
+  }
+
+  function startPfostenCreationMode(knotenId: string) {
+    if (!canEdit) {
+      return;
+    }
+
+    const knoten = findKnotenById(knotenId);
+
+    if (!knoten) {
+      return;
+    }
+
+    const nextPfosten = createNextPfostenValues(knoten);
+    draftMode = 'create-pfosten';
+    draftPoint = null;
+    resetEdgeDraft();
+    resetFormFields();
+    selectedKnotenForPfostenId = knoten.id;
+    pfostenKennung = nextPfosten.kennung;
+    pfostenNr = nextPfosten.nr;
+    pfostenIndex = nextPfosten.index;
+    pfostenTyp = 'bestandsmast';
+    pfostenMaterial = 'metall';
+    pfostenBestandStatus = 'vorhanden';
+  }
+
+  function handleEditPfostenSelect(pfostenId: string) {
+    if (!canEdit) {
+      return;
+    }
+
+    const pfosten = findPfostenById(pfostenId);
+
+    if (!pfosten || pfosten.lon === null || pfosten.lat === null) {
+      return;
+    }
+
+    draftMode = 'edit-pfosten';
+    resetEdgeDraft();
+    draftPoint = {
+      lon: pfosten.lon,
+      lat: pfosten.lat
+    };
+    editingPfostenId = pfosten.id;
+    selectedKnotenForPfostenId = pfosten.formData?.linkedKnotenId ?? '';
+    pfostenIndex = pfosten.formData?.pfostenIndex ? String(pfosten.formData.pfostenIndex) : '';
+    pfostenNr = pfosten.formData?.pfostenNr ?? pfosten.subtitle ?? pfostenIndex;
+    pfostenKennung = pfosten.formData?.pfostenKennung ?? pfosten.title;
+    pfostenTyp = pfosten.formData?.pfostenTyp ?? 'bestandsmast';
+    pfostenMaterial = pfosten.formData?.pfostenMaterial ?? 'metall';
+    pfostenBestandStatus = pfosten.status || 'vorhanden';
+    bemerkung = pfosten.formData?.bemerkung ?? '';
+    aktiv = pfosten.formData?.aktiv === true;
+  }
+
   function cancelDraft() {
     draftMode = 'none';
     draftPoint = null;
+    selectedKnotenForPfostenId = '';
+    editingPfostenId = '';
     resetEdgeDraft();
     resetFormFields();
   }
@@ -353,13 +486,21 @@
   function handleDraftPointChange(point: DraftPoint | null) {
     draftPoint = point;
 
-    if (draftMode === 'create' && point && (!bezeichnung.trim() || !kreis.trim() || !kommune.trim())) {
+    if (
+      draftMode === 'create' &&
+      point &&
+      (!bezeichnung.trim() || !kreis.trim() || !kommune.trim() || !knotenNr.trim())
+    ) {
       void suggestKnotenBezeichnungFromOsm(point, false);
     }
   }
 
   async function suggestKnotenBezeichnungFromOsm(point: DraftPoint | null = draftPoint, force = false) {
-    if (!point || draftMode !== 'create' || (!force && bezeichnung.trim() && kreis.trim() && kommune.trim())) {
+    if (
+      !point ||
+      draftMode !== 'create' ||
+      (!force && bezeichnung.trim() && kreis.trim() && kommune.trim() && knotenNr.trim())
+    ) {
       return;
     }
 
@@ -367,11 +508,14 @@
     osmBezeichnungStatus = 'loading';
 
     try {
-      const [suggestion, administrativeFields] = await Promise.all([
+      const [suggestion, administrativeFields, nrwKatasterResult] = await Promise.all([
         generateKnotenBezeichnungFromOsm(point.lon, point.lat, {
           originalCoordinate: point.originalCoordinate ?? null
         }),
         generateAdministrativeFieldsFromOsm(point.lon, point.lat, {
+          originalCoordinate: point.originalCoordinate ?? null
+        }),
+        findNrwKatasterkennungForCoordinate(point.lon, point.lat, {
           originalCoordinate: point.originalCoordinate ?? null
         })
       ]);
@@ -394,7 +538,75 @@
         kommune = administrativeFields.kommune;
       }
 
-      if (!suggestion && !administrativeFields.kreis && !administrativeFields.kommune) {
+      if (nrwKatasterResult?.kommune && (force || !kommune.trim())) {
+        kommune = nrwKatasterResult.kommune;
+      }
+
+      if (nrwKatasterResult?.katasterkennung) {
+        katasterkennung = nrwKatasterResult.knotenKennung ?? '';
+        katasterkennungSubmitValue = nrwKatasterResult.knotenKennung ?? nrwKatasterResult.katasterkennung;
+        pfostenKennung = nrwKatasterResult.pfostenKennung ?? '';
+        pfostenNr = nrwKatasterResult.pfostenNr ?? '';
+        nrwPoiNr = nrwKatasterResult.nr ?? '';
+        nrwTyp = nrwKatasterResult.category ?? '';
+        nrwKommune = nrwKatasterResult.kommune ?? '';
+        nrwSourceUrl = nrwKatasterResult.sourceUrl ?? '';
+        nrwRawValue = nrwKatasterResult.rawValue ?? '';
+        nrwObjectId = nrwKatasterResult.objectId ?? '';
+        offizielleKnotenNr = normalizeOfficialKnotenNr(nrwKatasterResult.offizielleKnotenNr);
+
+        const nrwKnotenpunktNr = nrwKatasterResult.knotenpunktNr ?? '';
+
+        if (/^\d+$/.test(nrwKnotenpunktNr) && (force || !knotenpunktNr.trim())) {
+          knotenpunktNr = nrwKnotenpunktNr;
+        }
+
+        if (offizielleKnotenNr) {
+          knotenNr = offizielleKnotenNr;
+        } else if (force || !knotenNr.trim() || knotenNr === nrwKatasterResult.katasterkennung) {
+          knotenNr = createVorlaeufigeKnotenNr({
+            katasterkennung: nrwKatasterResult.knotenKennung,
+            kommune: kommune || administrativeFields.kommune || nrwKatasterResult.kommune || '',
+            kreis: administrativeFields.kreis || kreis
+          });
+        }
+      } else if (force || !knotenNr.trim()) {
+        knotenNr = createVorlaeufigeKnotenNr({
+          katasterkennung: null,
+          kommune: kommune || administrativeFields.kommune || nrwKatasterResult?.kommune || '',
+          kreis: administrativeFields.kreis || kreis
+        });
+      }
+
+      if (nrwKatasterResult?.katasterkennung) {
+        nrwKatasterHinweis = `NRW-Katasterkennung gefunden: ${nrwKatasterResult.katasterkennung}`;
+      } else if (knotenNr.startsWith('VORL-')) {
+        nrwKatasterHinweis = `Keine NRW-Katasterkennung gefunden. Vorlaeufige Nummer erzeugt: ${knotenNr}`;
+      } else {
+        nrwKatasterHinweis = '';
+      }
+
+      // TODO DEBUG NRW-KATASTER
+      console.log('NRW-Kataster: Entscheidung fuer Knoten-Nummer.', {
+        nrwKatasterResult,
+        knotenNr,
+        knotenpunktNr,
+        knotenKennung: katasterkennung,
+        pfostenKennung,
+        pfostenNr,
+        nrwPoiNr,
+        nrwTyp,
+        nrwKommune,
+        nrwSourceUrl,
+        nrwRawValue,
+        nrwObjectId,
+        offizielleKnotenNr,
+        decision: nrwKatasterResult?.katasterkennung
+          ? 'NRW-Webobjekt getrennt ausgewertet; knoten_nr nur offizielle Knoten-Nr. oder VORL-Fallback.'
+          : 'Keine NRW-Kennung gefunden; vorlaeufige Nummer erzeugt.'
+      });
+
+      if (!suggestion && !administrativeFields.kreis && !administrativeFields.kommune && !nrwKatasterResult) {
         osmBezeichnungStatus = 'empty';
       } else {
         osmBezeichnungStatus = 'idle';
@@ -404,6 +616,93 @@
         osmBezeichnungStatus = 'error';
       }
     }
+  }
+
+  function normalizeKommuneKuerzelPart(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/^(Stadt|Gemeinde|Kreis|Landkreis)\s+/i, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase();
+  }
+
+  function createKommuneKuerzelFromKatasterkennung(value: string | null | undefined): string | null {
+    const match = value?.trim().toUpperCase().match(/^([A-Z]{1,4})\d/);
+    return match?.[1] ?? null;
+  }
+
+  function splitKatasterkennungForDisplay(value: string): {
+    knotenKennung: string;
+    pfostenKennung: string;
+    pfostenNr: string;
+  } {
+    const match = value.trim().match(/^([A-ZÄÖÜ]{1,4}\d{2,4})(?:-(\d+))?$/u);
+
+    if (!match) {
+      return {
+        knotenKennung: value,
+        pfostenKennung: '',
+        pfostenNr: ''
+      };
+    }
+
+    return {
+      knotenKennung: match[1],
+      pfostenKennung: match[2] ? value : '',
+      pfostenNr: match[2] ?? ''
+    };
+  }
+
+  function normalizeOfficialKnotenNr(value: string | null | undefined): string {
+    const normalized = value?.trim() ?? '';
+    return /^[1-9]\d{6,8}$/.test(normalized) ? normalized : '';
+  }
+
+  function createKommuneKuerzelFromAdministrativeFields(...values: string[]): string {
+    for (const value of values) {
+      const normalized = normalizeKommuneKuerzelPart(value);
+
+      if (!normalized) {
+        continue;
+      }
+
+      if (normalized === 'MUNSTER') {
+        return 'MS';
+      }
+
+      return normalized.slice(0, 2);
+    }
+
+    return 'UNBEKANNT';
+  }
+
+  function createVorlaeufigeKnotenNr(fields: {
+    katasterkennung: string | null;
+    kommune: string;
+    kreis: string;
+  }): string {
+    const kommuneKuerzel =
+      createKommuneKuerzelFromKatasterkennung(fields.katasterkennung) ??
+      createKommuneKuerzelFromAdministrativeFields(fields.kommune, fields.kreis);
+    const prefix = `VORL-${kommuneKuerzel}-`;
+    const existingNumbers = data.knoten
+      .map((knoten) => knoten.formData?.knotenNr ?? knoten.subtitle ?? '')
+      .filter((nummer) => nummer.startsWith(prefix))
+      .map((nummer) => Number(nummer.slice(prefix.length)))
+      .filter((nummer) => Number.isInteger(nummer));
+    const nextNumber = Math.max(0, ...existingNumbers) + 1;
+    const result = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+
+    // TODO DEBUG NRW-KATASTER
+    console.log('NRW-Kataster: Vorlaeufige Nummer erzeugt.', {
+      ...fields,
+      kommuneKuerzel,
+      existingNumbers,
+      result
+    });
+
+    return result;
   }
 
   function handleEditKnotenSelect(knotenId: string) {
@@ -432,6 +731,21 @@
     bezeichnung = knoten.formData?.bezeichnung ?? '';
     kreis = knoten.formData?.kreis ?? '';
     kommune = knoten.formData?.kommune ?? '';
+    const storedKatasterkennung = knoten.formData?.katasterkennung ?? '';
+    const storedKnotenKennung = knoten.formData?.knotenKennung ?? '';
+    const splitKennung = splitKatasterkennungForDisplay(storedKnotenKennung || storedKatasterkennung);
+    katasterkennung = storedKnotenKennung || splitKennung.knotenKennung;
+    katasterkennungSubmitValue = storedKatasterkennung;
+    pfostenKennung = knoten.formData?.pfostenKennung || splitKennung.pfostenKennung;
+    pfostenNr = knoten.formData?.pfostenNr || splitKennung.pfostenNr;
+    nrwPoiNr = knoten.formData?.nrwPoiNr ?? '';
+    nrwTyp = knoten.formData?.nrwTyp ?? '';
+    nrwKommune = knoten.formData?.nrwKommune ?? '';
+    nrwSourceUrl = knoten.formData?.nrwSourceUrl ?? '';
+    nrwRawValue = knoten.formData?.nrwRawValue || storedKatasterkennung;
+    nrwObjectId = knoten.formData?.nrwObjectId ?? '';
+    offizielleKnotenNr = knoten.formData?.offizielleKnotenNr ?? '';
+    nrwKatasterHinweis = '';
     status = knoten.status || 'bestand';
     knotenpunktNr = knotenpunktFieldValue(knoten.formData?.knotenpunktNr);
     bemerkung = knoten.formData?.bemerkung ?? '';
@@ -641,7 +955,7 @@
   <section class="panel kataster-panel">
     <div class="kataster-toolbar">
       <span>Knoten: {data.knoten.length}</span>
-      <span>Pfosten: {data.pfosten.length}</span>
+      <span>Pfosten: {visiblePfosten.length}</span>
       <span>Kanten: {data.kanten.length}</span>
       <span>Themenrouten: {data.themenrouten.length}</span>
       <span>Knotenpunktverbindungen: {data.knotenpunktverbindungen.length}</span>
@@ -683,6 +997,18 @@
         <span class="kataster-mode-hint">
           Bearbeiten aktiv. Position per Kartenklick oder Drag anpassen und dann speichern.
         </span>
+      {:else if draftMode === 'create-pfosten'}
+        <span class="kataster-mode-hint">
+          {#if draftPoint}
+            Pfostenposition gesetzt. Pfostendaten pruefen und speichern.
+          {:else}
+            Pfosten-Setzmodus aktiv. Bitte Position des Pfostens in der Karte anklicken.
+          {/if}
+        </span>
+      {:else if draftMode === 'edit-pfosten'}
+        <span class="kataster-mode-hint">
+          Pfosten bearbeiten. Position per Kartenklick oder Drag anpassen und dann speichern.
+        </span>
       {:else if draftMode === 'create-edge'}
         <span class="kataster-mode-hint">
           {#if edgeDraft?.endKnotenId}
@@ -703,18 +1029,21 @@
     <div class="kataster-edit-layout">
       <KatasterMap
         knoten={data.knoten}
-        pfosten={data.pfosten}
+        pfosten={visiblePfosten}
         kanten={data.kanten}
         themenrouten={data.themenrouten}
         knotenpunktverbindungen={data.knotenpunktverbindungen}
         {draftMode}
         {draftPoint}
         {edgeDraft}
+        {canEdit}
         onDraftPointChange={handleDraftPointChange}
         onEditKnotenSelect={handleEditKnotenSelect}
         onEdgeNodeSelect={handleEdgeNodeSelect}
         onEdgeHoverChange={handleEdgeHoverChange}
         onEdgeFeatureSelect={handleEdgeFeatureSelect}
+        onPfostenCreateRequest={startPfostenCreationMode}
+        onPfostenEditRequest={handleEditPfostenSelect}
         onEdgeVertexSelect={handleEdgeVertexSelect}
         onEdgeGeometryChange={handleEdgeGeometryChange}
         onEdgeEditSaveRequest={requestEdgeSave}
@@ -722,6 +1051,12 @@
 
       {#if draftMode !== 'none'}
         <section class="kataster-create-panel">
+          {#if form?.message}
+            <p class:success-message={form.success} class:error-message={!form.success} class="kataster-form-message">
+              {form.message}
+            </p>
+          {/if}
+
           {#if draftMode === 'create-edge' || draftMode === 'edit-edge'}
             <h2>{draftMode === 'create-edge' ? 'Neue Kante anlegen' : 'Kante bearbeiten'}</h2>
 
@@ -829,6 +1164,127 @@
                 </button>
               </div>
             </form>
+          {:else if draftMode === 'create-pfosten' || draftMode === 'edit-pfosten'}
+            <h2>{draftMode === 'create-pfosten' ? 'Neuen Pfosten anlegen' : 'Pfosten bearbeiten'}</h2>
+
+            {#if draftPoint}
+              <p class="kataster-create-coordinates">
+                Position: Lon {draftPoint.lon.toFixed(6)}, Lat {draftPoint.lat.toFixed(6)}
+              </p>
+            {:else}
+              <p class="kataster-create-coordinates">
+                Bitte Position des Pfostens in der Karte anklicken.
+              </p>
+            {/if}
+
+            <form
+              method="POST"
+              action={draftMode === 'create-pfosten' ? '?/createPfosten' : '?/updatePfosten'}
+              class="admin-form"
+              use:enhance={closeDraftOnSuccess}
+            >
+              {#if draftMode === 'edit-pfosten'}
+                <input type="hidden" name="id" value={editingPfostenId} />
+              {/if}
+              <input type="hidden" name="knoten" value={selectedKnotenForPfostenId} />
+              <input type="hidden" name="lon" value={draftPoint ? String(draftPoint.lon) : ''} />
+              <input type="hidden" name="lat" value={draftPoint ? String(draftPoint.lat) : ''} />
+
+              <fieldset class="kataster-form-section">
+                <legend>Pfosten-Daten</legend>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Laufende Pfostennummer <strong aria-hidden="true">*</strong></span>
+                    <input name="pfosten_index" type="number" min="1" step="1" bind:value={pfostenIndex} readonly required />
+                  </label>
+
+                  <label class="field">
+                    <span>Pfostenkennung</span>
+                    <input name="pfosten_kennung" bind:value={pfostenKennung} />
+                  </label>
+                </div>
+
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Pfosten-Nr. <strong aria-hidden="true">*</strong></span>
+                    <input name="pfosten_nr" bind:value={pfostenNr} required />
+                  </label>
+                </div>
+
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Typ <strong aria-hidden="true">*</strong></span>
+                    <input name="typ" bind:value={pfostenTyp} required />
+                  </label>
+
+                  <label class="field">
+                    <span>Material <strong aria-hidden="true">*</strong></span>
+                    <input name="material" bind:value={pfostenMaterial} required />
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span>Bestand-Status <strong aria-hidden="true">*</strong></span>
+                  <select name="bestand_status" bind:value={pfostenBestandStatus} required>
+                    <option value="vorhanden">Vorhanden</option>
+                    <option value="geplant">Geplant</option>
+                    <option value="zu_entfernen">Zu entfernen</option>
+                    <option value="ersetzt">Ersetzt</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Bemerkung</span>
+                  <textarea name="bemerkung" rows="3" bind:value={bemerkung}></textarea>
+                </label>
+
+                <label class="kataster-checkbox-field">
+                  <input name="aktiv" type="checkbox" bind:checked={aktiv} />
+                  <span>Aktiv</span>
+                </label>
+              </fieldset>
+
+              <fieldset class="kataster-form-section">
+                <legend>Geometrie / Position</legend>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Longitude</span>
+                    <input value={draftPoint ? String(draftPoint.lon) : ''} readonly />
+                  </label>
+                  <label class="field">
+                    <span>Latitude</span>
+                    <input value={draftPoint ? String(draftPoint.lat) : ''} readonly />
+                  </label>
+                </div>
+              </fieldset>
+
+              {#if draftMode === 'edit-pfosten'}
+                <div class="kataster-create-actions">
+                  <button
+                    class="button danger-button"
+                    type="submit"
+                    formaction="?/deletePfosten"
+                    name="id"
+                    value={editingPfostenId}
+                  >
+                    Pfosten loeschen
+                  </button>
+                </div>
+              {/if}
+
+              <div class="kataster-create-actions kataster-create-actions-primary">
+                <button class="button danger-button button-small" type="button" onclick={cancelDraft}>
+                  Abbrechen
+                </button>
+                <button
+                  class="button button-large"
+                  type="submit"
+                  disabled={!selectedKnotenForPfostenId || !draftPoint || !pfostenIndex.trim() || !pfostenNr.trim() || !pfostenTyp.trim() || !pfostenMaterial.trim() || !pfostenBestandStatus.trim() || (draftMode === 'edit-pfosten' && !editingPfostenId)}
+                >
+                  Speichern
+                </button>
+              </div>
+            </form>
           {:else}
             <h2>{draftMode === 'create' ? 'Neuen Knoten anlegen' : 'Knoten bearbeiten'}</h2>
 
@@ -851,26 +1307,56 @@
               {/if}
               <input type="hidden" name="lon" value={draftPoint ? String(draftPoint.lon) : ''} />
               <input type="hidden" name="lat" value={draftPoint ? String(draftPoint.lat) : ''} />
+              <input type="hidden" name="pfosten_kennung" value={pfostenKennung} />
+              <input type="hidden" name="pfosten_nr" value={pfostenNr} />
 
-              <label class="field">
-                <span>Knoten-Nr.</span>
-                <input name="knoten_nr" bind:value={knotenNr} required />
-              </label>
+              <fieldset class="kataster-form-section">
+                <legend>Knoten-Daten</legend>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Knoten-Nr. <strong aria-hidden="true">*</strong></span>
+                    <input name="knoten_nr" bind:value={knotenNr} required />
+                  </label>
 
-              <label class="field">
-                <span>Bezeichnung</span>
-                <input name="bezeichnung" bind:value={bezeichnung} />
-              </label>
+                  <label class="field">
+                    <span>Status <strong aria-hidden="true">*</strong></span>
+                    <select name="status" bind:value={status} required>
+                      <option value="bestand">Bestand</option>
+                      <option value="planung">Planung</option>
+                      <option value="entfallen">Entfallen</option>
+                    </select>
+                  </label>
+                </div>
 
-              <label class="field">
-                <span>Kreis</span>
-                <input name="kreis" bind:value={kreis} />
-              </label>
+                <label class="field">
+                  <span>Bezeichnung</span>
+                  <input name="bezeichnung" bind:value={bezeichnung} />
+                </label>
 
-              <label class="field">
-                <span>Kommune</span>
-                <input name="kommune" bind:value={kommune} />
-              </label>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Kreis</span>
+                    <input name="kreis" bind:value={kreis} />
+                  </label>
+
+                  <label class="field">
+                    <span>Kommune</span>
+                    <input name="kommune" bind:value={kommune} />
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span>Knotenpunkt-Nr.</span>
+                  <input
+                    name="knotenpunkt_nr"
+                    type="text"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="optional, 1-99"
+                    bind:value={knotenpunktNr}
+                  />
+                </label>
+              </fieldset>
 
               {#if draftMode === 'create'}
                 <div class="kataster-create-actions">
@@ -889,38 +1375,103 @@
                 {:else if osmBezeichnungStatus === 'error'}
                   <p class="kataster-create-coordinates">OSM-Daten konnten nicht geladen werden.</p>
                 {/if}
+
+                {#if nrwKatasterHinweis}
+                  <p class="kataster-create-coordinates">{nrwKatasterHinweis}</p>
+                {/if}
               {/if}
 
-              <label class="field">
-                <span>Status</span>
-                <select name="status" bind:value={status} required>
-                  <option value="bestand">Bestand</option>
-                  <option value="planung">Planung</option>
-                  <option value="entfallen">Entfallen</option>
-                </select>
-              </label>
+              <fieldset class="kataster-form-section">
+                <legend>NRW- / Katasterdaten</legend>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Katasterkennung</span>
+                    <input name="katasterkennung" bind:value={katasterkennungSubmitValue} />
+                  </label>
 
-              <label class="field">
-                <span>Knotenpunkt-Nr.</span>
-                <input
-                  name="knotenpunkt_nr"
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="optional, 1-99"
-                  bind:value={knotenpunktNr}
-                />
-              </label>
+                  <label class="field">
+                    <span>Knotenkennung</span>
+                    <input name="knoten_kennung" bind:value={katasterkennung} />
+                  </label>
+                </div>
 
-              <label class="field">
-                <span>Bemerkung</span>
-                <textarea name="bemerkung" rows="4" bind:value={bemerkung}></textarea>
-              </label>
+                <label class="field">
+                  <span>Offizielle Knoten-Nr.</span>
+                  <input
+                    name="offizielle_knoten_nr"
+                    bind:value={offizielleKnotenNr}
+                    inputmode="numeric"
+                    placeholder="nur aus offizieller Quelle"
+                  />
+                </label>
 
-              <label class="kataster-checkbox-field">
-                <input name="aktiv" type="checkbox" bind:checked={aktiv} />
-                <span>Aktiv</span>
-              </label>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>NRW-POI-Nr.</span>
+                    <input name="nrw_poi_nr" bind:value={nrwPoiNr} />
+                  </label>
+
+                  <label class="field">
+                    <span>NRW-Kategorie</span>
+                    <input name="nrw_typ" bind:value={nrwTyp} />
+                  </label>
+                </div>
+
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>NRW-Kommune</span>
+                    <input name="nrw_kommune" bind:value={nrwKommune} />
+                  </label>
+
+                  <label class="field">
+                    <span>NRW-Object-ID</span>
+                    <input name="nrw_object_id" bind:value={nrwObjectId} />
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span>NRW-Rohwert</span>
+                  <input name="nrw_raw_value" bind:value={nrwRawValue} />
+                </label>
+
+                <label class="field">
+                  <span>NRW-Quell-URL</span>
+                  <input name="nrw_source_url" bind:value={nrwSourceUrl} />
+                </label>
+              </fieldset>
+
+              {#if !katasterkennung && knotenNr.startsWith('VORL-')}
+                <div class="kataster-create-coordinates">
+                  Keine NRW-Katasterkennung gefunden. Vorlaeufige Nummer: {knotenNr}
+                </div>
+              {/if}
+
+              <fieldset class="kataster-form-section">
+                <legend>Geometrie / Position</legend>
+                <div class="field-row two-columns">
+                  <label class="field">
+                    <span>Longitude</span>
+                    <input value={draftPoint ? String(draftPoint.lon) : ''} readonly />
+                  </label>
+                  <label class="field">
+                    <span>Latitude</span>
+                    <input value={draftPoint ? String(draftPoint.lat) : ''} readonly />
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="kataster-form-section">
+                <legend>Weitere Angaben</legend>
+                <label class="field">
+                  <span>Bemerkung</span>
+                  <textarea name="bemerkung" rows="3" bind:value={bemerkung}></textarea>
+                </label>
+
+                <label class="kataster-checkbox-field">
+                  <input name="aktiv" type="checkbox" bind:checked={aktiv} />
+                  <span>Aktiv</span>
+                </label>
+              </fieldset>
 
               {#if draftMode === 'edit'}
                 <div class="kataster-create-actions">
@@ -943,7 +1494,7 @@
                 <button
                   class="button button-large"
                   type="submit"
-                  disabled={!draftPoint || (draftMode === 'edit' && !editingKnotenId)}
+                  disabled={!draftPoint || !knotenNr.trim() || !status.trim() || (draftMode === 'edit' && !editingKnotenId)}
                 >
                   Speichern
                 </button>

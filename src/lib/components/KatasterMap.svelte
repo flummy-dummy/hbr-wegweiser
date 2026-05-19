@@ -18,7 +18,7 @@
     originalCoordinate?: readonly [number, number];
   };
 
-  type DraftMode = 'none' | 'create' | 'edit' | 'create-edge' | 'edit-edge';
+  type DraftMode = 'none' | 'create' | 'edit' | 'create-pfosten' | 'edit-pfosten' | 'create-edge' | 'edit-edge';
 
   type EdgeDraft = {
     edgeId: string | null;
@@ -42,11 +42,14 @@
     draftMode = 'none',
     draftPoint = null,
     edgeDraft = null,
+    canEdit = false,
     onDraftPointChange = (_point: DraftPoint | null) => {},
     onEditKnotenSelect = (_knotenId: string) => {},
     onEdgeNodeSelect = (_knotenId: string) => {},
     onEdgeHoverChange = (_point: DraftPoint | null) => {},
     onEdgeFeatureSelect = (_kanteId: string) => {},
+    onPfostenCreateRequest = (_knotenId: string) => {},
+    onPfostenEditRequest = (_pfostenId: string) => {},
     onEdgeVertexSelect = (_index: number | null) => {},
     onEdgeGeometryChange = (_points: DraftPoint[]) => {},
     onEdgeEditSaveRequest = () => {}
@@ -59,11 +62,14 @@
     draftMode?: DraftMode;
     draftPoint?: DraftPoint | null;
     edgeDraft?: EdgeDraft | null;
+    canEdit?: boolean;
     onDraftPointChange?: (point: DraftPoint | null) => void;
     onEditKnotenSelect?: (knotenId: string) => void;
     onEdgeNodeSelect?: (knotenId: string) => void;
     onEdgeHoverChange?: (point: DraftPoint | null) => void;
     onEdgeFeatureSelect?: (kanteId: string) => void;
+    onPfostenCreateRequest?: (knotenId: string) => void;
+    onPfostenEditRequest?: (pfostenId: string) => void;
     onEdgeVertexSelect?: (index: number | null) => void;
     onEdgeGeometryChange?: (points: DraftPoint[]) => void;
     onEdgeEditSaveRequest?: () => void;
@@ -219,6 +225,39 @@
     return isEndpointVertex ? edgeVertexEndpointStyle : edgeVertexDefaultStyle;
   }
 
+  function getRelatedPfostenForKnoten(knotenId: string): KatasterFeatureInfo['relatedPfosten'] {
+    return pfosten
+      .filter((entry) => entry.formData?.linkedKnotenId === knotenId)
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.formData?.pfostenKennung || entry.title,
+        subtitle: entry.formData?.pfostenTyp || entry.subtitle,
+        status: entry.status,
+        pfostenIndex: entry.formData?.pfostenIndex ?? null
+      }));
+  }
+
+  function getSelectedFeatureInfo(feature: Feature<Geometry>): KatasterFeatureInfo {
+    const info = katasterMapModule?.getFeatureInfo(feature) ?? {
+      id: feature.get('id') || String(feature.getId() ?? ''),
+      collection: feature.get('collection'),
+      title: feature.get('title'),
+      subtitle: feature.get('subtitle') || undefined,
+      status: feature.get('status') || 'ohne Status'
+    };
+
+    if (feature.get('collection') !== 'knoten') {
+      return info;
+    }
+
+    const featureId = feature.get('id') ?? feature.getId();
+
+    return {
+      ...info,
+      relatedPfosten: typeof featureId === 'string' ? getRelatedPfostenForKnoten(featureId) : []
+    };
+  }
+
   function refreshSources() {
     if (!isMapReady || !katasterMapModule) {
       return;
@@ -253,7 +292,9 @@
       return;
     }
 
-    const shouldEnable = (draftMode === 'create' || draftMode === 'edit') && Boolean(draftPoint);
+    const shouldEnable =
+      (draftMode === 'create' || draftMode === 'edit' || draftMode === 'create-pfosten' || draftMode === 'edit-pfosten') &&
+      Boolean(draftPoint);
     translateInteraction.setActive(shouldEnable);
   }
 
@@ -545,7 +586,7 @@
             const featureId = clickedKnoten.get('id') ?? clickedKnoten.getId();
 
             if (typeof featureId === 'string' && featureId) {
-              selectedFeatureInfo = katasterMap.getFeatureInfo(clickedKnoten);
+              selectedFeatureInfo = getSelectedFeatureInfo(clickedKnoten);
               onEdgeNodeSelect(featureId);
             }
             return;
@@ -583,8 +624,8 @@
           if (clickedKante) {
             const featureId = clickedKante.get('id') ?? clickedKante.getId();
 
-            if (typeof featureId === 'string' && featureId) {
-              selectedFeatureInfo = katasterMap.getFeatureInfo(clickedKante);
+          if (typeof featureId === 'string' && featureId) {
+              selectedFeatureInfo = getSelectedFeatureInfo(clickedKante);
               onEdgeFeatureSelect(featureId);
             }
             return;
@@ -606,15 +647,9 @@
           return;
         }
 
-        selectedFeatureInfo = katasterMap.getFeatureInfo(feature);
+        selectedFeatureInfo = getSelectedFeatureInfo(feature);
 
-        if (feature.get('collection') === 'knoten') {
-          const featureId = feature.get('id') ?? feature.getId();
-
-          if (typeof featureId === 'string' && featureId) {
-            onEditKnotenSelect(featureId);
-          }
-        } else if (feature.get('collection') === 'kanten') {
+        if (feature.get('collection') === 'kanten') {
           const featureId = feature.get('id') ?? feature.getId();
 
           if (typeof featureId === 'string' && featureId) {
@@ -739,6 +774,10 @@
   <div class="kataster-map-frame" class:kataster-map-frame-creating={draftMode !== 'none'}>
     {#if draftMode === 'create'}
       <div class="kataster-map-mode-banner">Bearbeitungsmodus aktiv: Knoten per Klick in die Karte setzen</div>
+    {:else if draftMode === 'create-pfosten'}
+      <div class="kataster-map-mode-banner">Bitte Position des Pfostens in der Karte anklicken.</div>
+    {:else if draftMode === 'edit-pfosten'}
+      <div class="kataster-map-mode-banner">Bearbeitungsmodus aktiv: Pfostenposition per Klick oder Drag verschieben</div>
     {:else if draftMode === 'edit'}
       <div class="kataster-map-mode-banner">Bearbeitungsmodus aktiv: Knotenposition per Klick oder Drag verschieben</div>
     {:else if draftMode === 'create-edge'}
@@ -767,6 +806,16 @@
           Bearbeitungsmodus aktiv.
         {/if}
       </p>
+    {:else if draftMode === 'create-pfosten'}
+      <p>
+        {#if draftPoint}
+          Pfostenposition gesetzt. Pfostendaten ausfuellen und speichern.
+        {:else}
+          Bitte Position des Pfostens in der Karte anklicken.
+        {/if}
+      </p>
+    {:else if draftMode === 'edit-pfosten'}
+      <p>Pfosten bearbeiten. Position per Kartenklick oder Ziehen des Punktes anpassen.</p>
     {:else if draftMode === 'create-edge'}
       <p>
         {#if edgeDraft}
@@ -801,9 +850,56 @@
           <dt>Status</dt>
           <dd>{selectedFeatureInfo.status || 'ohne Status'}</dd>
         </div>
+        {#each selectedFeatureInfo.details ?? [] as detail}
+          <div>
+            <dt>{detail.label}</dt>
+            <dd>{detail.value}</dd>
+          </div>
+        {/each}
       </dl>
+      {#if selectedFeatureInfo.relatedPfosten?.length}
+        <h3>Zugehoerige Pfosten</h3>
+        <ul class="kataster-related-list">
+          {#each selectedFeatureInfo.relatedPfosten as pfostenInfo}
+            <li>
+              <strong>{pfostenInfo.title}</strong>
+              {#if pfostenInfo.subtitle}
+                <span>{pfostenInfo.subtitle}</span>
+              {/if}
+              {#if pfostenInfo.status}
+                <small>{pfostenInfo.status}</small>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if canEdit && selectedFeatureInfo.collection === 'knoten'}
+        <button
+          class="button secondary-button button-small"
+          type="button"
+          onclick={() => selectedFeatureInfo?.id && onEditKnotenSelect(selectedFeatureInfo.id)}
+        >
+          Knoten bearbeiten
+        </button>
+        <button
+          class="button secondary-button button-small"
+          type="button"
+          onclick={() => selectedFeatureInfo?.id && onPfostenCreateRequest(selectedFeatureInfo.id)}
+        >
+          Pfosten hinzufuegen
+        </button>
+      {/if}
+      {#if canEdit && selectedFeatureInfo.collection === 'pfosten'}
+        <button
+          class="button secondary-button button-small"
+          type="button"
+          onclick={() => selectedFeatureInfo?.id && onPfostenEditRequest(selectedFeatureInfo.id)}
+        >
+          Pfosten bearbeiten
+        </button>
+      {/if}
     {:else}
-      <p>Einen Knoten oder eine Kante anklicken, um die Geometrie zu bearbeiten.</p>
+      <p>Einen Knoten, Pfosten oder eine Kante anklicken, um Details anzuzeigen.</p>
     {/if}
   </aside>
 </div>
