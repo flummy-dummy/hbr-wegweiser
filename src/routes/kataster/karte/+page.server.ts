@@ -6,6 +6,14 @@ import type { Actions, PageServerLoad } from './$types';
 
 type PocketBaseClient = PocketBase;
 type RecordPayload = Record<string, unknown>;
+type SubmittedNrwPfosten = {
+  pfostenKennung: string;
+  pfostenNr: string;
+  nrwRawValue: string;
+  nrwObjectId: string;
+  lon: number | null;
+  lat: number | null;
+};
 
 const KNOWN_COLLECTION_FIELDS: Record<string, Set<string>> = {
   pfosten: new Set([
@@ -58,6 +66,11 @@ function createPfostenKennung(knotenKennung: string, pfostenIndex: number): stri
 function normalizeOfficialKnotenNr(value: string): string {
   const normalized = value.trim();
   return /^[1-9]\d{6,8}$/.test(normalized) ? normalized : '';
+}
+
+function normalizeNrwKnotenKennung(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  return /^[A-ZÄÖÜ]{1,4}\d{2,4}$/u.test(normalized) ? normalized : '';
 }
 
 function describePocketBaseError(error: unknown, fallback: string): string {
@@ -220,72 +233,145 @@ async function updateRecordWithSchemaFallback(
   }
 }
 
-async function createOrUpdateLinkedPfostenFromNrwData(
+function parseSubmittedNrwPfosten(rawValue: string, knotenKennung: string): SubmittedNrwPfosten[] {
+  const entries: unknown[] = [];
+
+  if (rawValue) {
+    try {
+      const parsed = JSON.parse(rawValue);
+
+      if (Array.isArray(parsed)) {
+        entries.push(...parsed);
+      }
+    } catch {
+      // Ungueltige Zusatzdaten werden ignoriert; der Knoten kann trotzdem gespeichert werden.
+    }
+  }
+
+  const result = new Map<string, SubmittedNrwPfosten>();
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const candidate = entry as Record<string, unknown>;
+    const pfostenKennung =
+      typeof candidate.pfostenKennung === 'string' ? candidate.pfostenKennung.trim() : '';
+    const match = pfostenKennung.match(/^([A-ZÄÖÜ]{1,4}\d{2,4})-(\d+)$/u);
+
+    if (!match || match[1] !== knotenKennung) {
+      continue;
+    }
+
+    result.set(pfostenKennung, {
+      pfostenKennung,
+      pfostenNr: match[2],
+      nrwRawValue:
+        typeof candidate.nrwRawValue === 'string'
+          ? candidate.nrwRawValue.trim()
+          : typeof candidate.rawValue === 'string'
+            ? candidate.rawValue.trim()
+            : '',
+      nrwObjectId:
+        typeof candidate.nrwObjectId === 'string'
+          ? candidate.nrwObjectId.trim()
+          : typeof candidate.objectId === 'string'
+            ? candidate.objectId.trim()
+            : '',
+      lon: typeof candidate.lon === 'number' && Number.isFinite(candidate.lon) ? candidate.lon : null,
+      lat: typeof candidate.lat === 'number' && Number.isFinite(candidate.lat) ? candidate.lat : null
+    });
+  }
+
+  return Array.from(result.values());
+}
+
+async function createMissingNrwPfosten(
   pb: PocketBaseClient,
   knotenId: string,
-  data: {
-    lon: number;
-    lat: number;
-    pfostenKennung: string;
-    pfostenNr: string;
-    nrwRawValue: string;
-    nrwObjectId: string;
-    bemerkung?: string;
-  }
-) {
-  if (!data.pfostenKennung && !data.pfostenNr && !data.nrwRawValue && !data.nrwObjectId) {
-    return;
-  }
+  candidates: SubmittedNrwPfosten[]
+): Promise<{ created: string[]; existing: string[]; missingCoordinates: string[] }> {
+  const created: string[] = [];
+  const existing: string[] = [];
+  const missingCoordinates: string[] = [];
 
-  if (!data.pfostenNr && !data.pfostenKennung) {
-    return;
-  }
+  console.log('NRW-Kataster: Automatische Pfostenanlage gestartet.', {
+    knotenId,
+    candidateCount: candidates.length,
+    candidates: candidates.map((candidate) => candidate.pfostenKennung)
+  });
 
-  const existingIndex = parsePositiveIntegerInput(data.pfostenNr);
-  const pfostenIndex = existingIndex ?? (await getNextPfostenIndex(pb, knotenId));
-  const pfostenKennung = data.pfostenKennung || data.pfostenNr;
-  const payload = {
-    knoten: knotenId,
-    pfosten_index: pfostenIndex,
-    pfosten_kennung: pfostenKennung,
-    pfosten_nr: pfostenKennung,
-    nrw_raw_value: data.nrwRawValue,
-    nrw_object_id: data.nrwObjectId,
-    bestand_status: 'vorhanden',
-    typ: 'bestandsmast',
-    bemerkung: data.bemerkung ?? '',
-    material: 'metall',
-    aktiv: true,
-    geom_typ: 'Point',
-    geom_json: {
-      type: 'Point',
-      coordinates: [data.lon, data.lat]
-    },
-    lon: data.lon,
-    lat: data.lat
-  };
+  for (const candidate of candidates) {
+    if (
+      candidate.lon === null ||
+      candidate.lat === null ||
+      candidate.lon < -180 ||
+      candidate.lon > 180 ||
+      candidate.lat < -90 ||
+      candidate.lat > 90
+    ) {
+      missingCoordinates.push(candidate.pfostenKennung);
+      console.log('NRW-Kataster: Pfosten wegen fehlender eigener Koordinate uebersprungen.', {
+        knotenId,
+        pfostenKennung: candidate.pfostenKennung,
+        lon: candidate.lon,
+        lat: candidate.lat
+      });
+      continue;
+    }
 
-  try {
-    const filter = pb.filter('pfosten_kennung = {:pfostenKennung}', {
-      pfostenKennung
+    try {
+      await pb.collection('pfosten').getFirstListItem<RecordModel>(
+        pb.filter('pfosten_kennung = {:pfostenKennung}', {
+          pfostenKennung: candidate.pfostenKennung
+        })
+      );
+      existing.push(candidate.pfostenKennung);
+      console.log('NRW-Kataster: Bereits vorhandener Pfosten uebersprungen.', {
+        knotenId,
+        pfostenKennung: candidate.pfostenKennung
+      });
+      continue;
+    } catch (error) {
+      if ((error as { status?: number })?.status !== 404) {
+        throw error;
+      }
+    }
+
+    const payload = {
+      knoten: knotenId,
+      pfosten_index: Number(candidate.pfostenNr),
+      pfosten_kennung: candidate.pfostenKennung,
+      pfosten_nr: candidate.pfostenKennung,
+      nrw_raw_value: candidate.nrwRawValue,
+      nrw_object_id: candidate.nrwObjectId,
+      bestand_status: 'vorhanden',
+      typ: 'bestandsmast',
+      bemerkung: 'Automatisch aus NRW-Katasterdaten angelegt.',
+      material: 'metall',
+      aktiv: true,
+      geom_typ: 'Point',
+      geom_json: {
+        type: 'Point',
+        coordinates: [candidate.lon, candidate.lat]
+      },
+      lon: candidate.lon,
+      lat: candidate.lat
+    };
+
+    console.log('NRW-Kataster: Automatischer Pfosten-Create-Payload.', JSON.stringify(payload, null, 2));
+    const createdRecord = await createRecordWithSchemaFallback(pb, 'pfosten', payload);
+    console.log('NRW-Kataster: Automatischer Pfosten in PocketBase angelegt.', {
+      knotenId,
+      pfostenId: String(createdRecord.id ?? ''),
+      pfostenKennung: candidate.pfostenKennung,
+      relationKnoten: String(createdRecord.knoten ?? knotenId)
     });
-    const existingPfosten = pfostenKennung
-      ? await pb.collection('pfosten').getFirstListItem(filter)
-      : null;
-
-    if (existingPfosten?.id) {
-      console.log('TODO DEBUG NRW-KATASTER Pfosten-Update-Payload.', payload);
-      await updateRecordWithSchemaFallback(pb, 'pfosten', existingPfosten.id, payload);
-      return;
-    }
-  } catch (error) {
-    if ((error as { status?: number })?.status !== 404) {
-      throw error;
-    }
+    created.push(candidate.pfostenKennung);
   }
 
-  console.log('TODO DEBUG NRW-KATASTER Pfosten-Create-Payload.', payload);
-  await createRecordWithSchemaFallback(pb, 'pfosten', payload);
+  return { created, existing, missingCoordinates };
 }
 
 async function createOrUpdatePfostenByKennung(
@@ -575,12 +661,12 @@ export const actions: Actions = {
   createKnoten: async (event) => {
     const pbAdmin = getAuthorizedPocketBase(event, 'edit');
     const values = await event.request.formData();
-    const knotenNr = formValue(values, 'knoten_nr');
+    const requestedKnotenNr = formValue(values, 'knoten_nr');
     const bezeichnung = formValue(values, 'bezeichnung');
     const kreis = formValue(values, 'kreis');
     const kommune = formValue(values, 'kommune');
     const katasterkennung = formValue(values, 'katasterkennung');
-    const knotenKennung = formValue(values, 'knoten_kennung');
+    const knotenKennung = normalizeNrwKnotenKennung(formValue(values, 'knoten_kennung'));
     const pfostenKennung = formValue(values, 'pfosten_kennung');
     const pfostenNr = formValue(values, 'pfosten_nr');
     const nrwPoiNr = formValue(values, 'nrw_poi_nr');
@@ -589,6 +675,7 @@ export const actions: Actions = {
     const nrwSourceUrl = formValue(values, 'nrw_source_url');
     const nrwRawValue = formValue(values, 'nrw_raw_value');
     const nrwObjectId = formValue(values, 'nrw_object_id');
+    const nrwPfostenJson = formValue(values, 'nrw_pfosten_json');
     const offizielleKnotenNr = normalizeOfficialKnotenNr(formValue(values, 'offizielle_knoten_nr'));
     const status = formValue(values, 'status');
     const knotenpunktNrRaw = formValue(values, 'knotenpunkt_nr');
@@ -596,6 +683,17 @@ export const actions: Actions = {
     const lonRaw = formValue(values, 'lon');
     const latRaw = formValue(values, 'lat');
     const aktiv = values.get('aktiv') === 'on';
+    const knotenNr = knotenKennung || requestedKnotenNr;
+    const submittedNrwPfosten = parseSubmittedNrwPfosten(nrwPfostenJson, knotenKennung);
+
+    values.set('knoten_nr', knotenNr);
+    values.set('knoten_kennung', knotenKennung);
+
+    console.log('NRW-Kataster: Eingang Pfostenkandidaten im Knoten-Create.', {
+      rawNrwPfostenJson: nrwPfostenJson,
+      submittedCandidateCount: submittedNrwPfosten.length,
+      candidates: submittedNrwPfosten.map((candidate) => candidate.pfostenKennung)
+    });
 
     if (!knotenNr) {
       return fail(400, {
@@ -680,6 +778,23 @@ export const actions: Actions = {
     };
 
     try {
+      try {
+        await pbAdmin.collection('knoten').getFirstListItem<RecordModel>(
+          pbAdmin.filter('knoten_nr = {:knotenNr}', { knotenNr })
+        );
+
+        return fail(409, {
+          success: false,
+          action: 'createKnoten',
+          message: `Ein Knoten mit der Knoten-Nr. ${knotenNr} existiert bereits. Es wurde kein neuer Knoten angelegt.`,
+          values: Object.fromEntries(values)
+        });
+      } catch (lookupError) {
+        if ((lookupError as { status?: number })?.status !== 404) {
+          throw lookupError;
+        }
+      }
+
       console.log('TODO DEBUG NRW-KATASTER Knoten-Create-Payload.', {
         knoten_kennung: payload.knoten_kennung,
         pfosten_kennung: payload.pfosten_kennung,
@@ -691,20 +806,38 @@ export const actions: Actions = {
         knoten_nr: payload.knoten_nr
       });
       const createdRecord = await createRecordWithSchemaFallback(pbAdmin, 'knoten', payload);
-      await createOrUpdateLinkedPfostenFromNrwData(pbAdmin, createdRecord.id, {
-        lon,
-        lat,
-        pfostenKennung,
-        pfostenNr,
-        nrwRawValue,
-        nrwObjectId,
-        bemerkung: 'Automatisch aus NRW-Katasterdaten angelegt.'
+
+      console.log('NRW-Kataster: Neu angelegter Knoten fuer automatische Pfosten.', {
+        knotenId: String(createdRecord.id ?? ''),
+        knotenNr,
+        knotenKennung,
+        submittedCandidateCount: submittedNrwPfosten.length
       });
+
+      const automaticPfosten = submittedNrwPfosten.length
+        ? await createMissingNrwPfosten(pbAdmin, createdRecord.id, submittedNrwPfosten)
+        : { created: [], existing: [], missingCoordinates: [] };
+
+      if (!submittedNrwPfosten.length) {
+        console.log('NRW-Kataster: Keine Pfostenkandidaten im Formular angekommen; automatische Anlage nicht gestartet.', {
+          knotenId: String(createdRecord.id ?? ''),
+          rawNrwPfostenJson: nrwPfostenJson
+        });
+      }
+      const createdMessage = automaticPfosten.created.length
+        ? ` Automatisch angelegte Pfosten: ${automaticPfosten.created.join(', ')}.`
+        : '';
+      const skippedMessage = automaticPfosten.existing.length
+        ? ` Bereits vorhandene Pfosten uebersprungen: ${automaticPfosten.existing.join(', ')}.`
+        : '';
+      const missingCoordinatesMessage = automaticPfosten.missingCoordinates.length
+        ? ` Wegen fehlender eigener Koordinate nicht angelegte Pfosten: ${automaticPfosten.missingCoordinates.join(', ')}.`
+        : '';
 
       return {
         success: true,
         action: 'createKnoten',
-        message: 'Knoten wurde gespeichert.',
+        message: `Knoten wurde gespeichert.${createdMessage}${skippedMessage}${missingCoordinatesMessage}`,
         createdKnoten: mapKnotenRecord(createdRecord)
       };
     } catch (error) {
@@ -848,15 +981,6 @@ export const actions: Actions = {
         knoten_nr: payload.knoten_nr
       });
       await updateRecordWithSchemaFallback(pbAdmin, 'knoten', id, payload);
-      await createOrUpdateLinkedPfostenFromNrwData(pbAdmin, id, {
-        lon,
-        lat,
-        pfostenKennung,
-        pfostenNr,
-        nrwRawValue,
-        nrwObjectId
-      });
-
       await syncConnectedKantenForMovedKnoten(pbAdmin, id, lon, lat);
 
       return {

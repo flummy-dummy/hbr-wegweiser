@@ -5,6 +5,7 @@
   import KatasterMap from '$lib/components/KatasterMap.svelte';
   import type { GeoJsonGeometry, KatasterMapRecord } from '$lib/kataster';
   import { findNrwKatasterkennungForCoordinate } from '$lib/nrw-kataster';
+  import type { NrwPfostenCandidate } from '$lib/nrw-kataster';
   import {
     generateAdministrativeFieldsFromOsm,
     generateKnotenBezeichnungFromOsm
@@ -64,6 +65,34 @@
 
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function parseNrwPfostenCandidates(raw: string): NrwPfostenCandidate[] {
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      return parsed.filter(
+        (entry): entry is NrwPfostenCandidate =>
+          Boolean(entry) &&
+          typeof entry === 'object' &&
+          typeof entry.pfostenKennung === 'string' &&
+          typeof entry.pfostenNr === 'string' &&
+          typeof entry.rawValue === 'string' &&
+          typeof entry.objectId === 'string' &&
+          (entry.lon === null || typeof entry.lon === 'number') &&
+          (entry.lat === null || typeof entry.lat === 'number')
+      );
+    } catch {
+      return [];
+    }
   }
 
   function knotenpunktFieldValue(value: unknown): string {
@@ -314,6 +343,9 @@
   let aktiv = $state(stringValue(initialValues, 'aktiv') === 'on');
   let osmBezeichnungStatus = $state<'idle' | 'loading' | 'empty' | 'error'>('idle');
   let nrwKatasterHinweis = $state('');
+  let nrwPfostenCandidates = $state<NrwPfostenCandidate[]>(
+    parseNrwPfostenCandidates(stringValue(initialValues, 'nrw_pfosten_json'))
+  );
   let edgeEditFormElement = $state<HTMLFormElement | null>(null);
   let osmBezeichnungRequestId = 0;
   const canEdit = $derived(page.data.auth?.canEdit === true);
@@ -328,6 +360,19 @@
         cancelDraft();
       }
     };
+  };
+
+  const submitKnotenWithDebug: SubmitFunction = (submission) => {
+    const { formData } = submission;
+    const nrwPfostenJson = String(formData.get('nrw_pfosten_json') ?? '');
+    const submittedCandidates = parseNrwPfostenCandidates(nrwPfostenJson);
+
+    console.log('NRW-Kataster: Knoten-Submit mit Pfostenkandidaten.', {
+      candidateCount: submittedCandidates.length,
+      nrwPfostenJson
+    });
+
+    return closeDraftOnSuccess(submission);
   };
 
   function resetFormFields() {
@@ -358,6 +403,7 @@
     aktiv = false;
     osmBezeichnungStatus = 'idle';
     nrwKatasterHinweis = '';
+    nrwPfostenCandidates = [];
     selectedKnotenForPfostenId = '';
   }
 
@@ -506,6 +552,7 @@
 
     const requestId = ++osmBezeichnungRequestId;
     osmBezeichnungStatus = 'loading';
+    nrwPfostenCandidates = [];
 
     try {
       const [suggestion, administrativeFields, nrwKatasterResult] = await Promise.all([
@@ -554,6 +601,7 @@
         nrwRawValue = nrwKatasterResult.rawValue ?? '';
         nrwObjectId = nrwKatasterResult.objectId ?? '';
         offizielleKnotenNr = normalizeOfficialKnotenNr(nrwKatasterResult.offizielleKnotenNr);
+        nrwPfostenCandidates = nrwKatasterResult.relatedPfosten ?? [];
 
         const nrwKnotenpunktNr = nrwKatasterResult.knotenpunktNr ?? '';
 
@@ -561,14 +609,8 @@
           knotenpunktNr = nrwKnotenpunktNr;
         }
 
-        if (offizielleKnotenNr) {
-          knotenNr = offizielleKnotenNr;
-        } else if (force || !knotenNr.trim() || knotenNr === nrwKatasterResult.katasterkennung) {
-          knotenNr = createVorlaeufigeKnotenNr({
-            katasterkennung: nrwKatasterResult.knotenKennung,
-            kommune: kommune || administrativeFields.kommune || nrwKatasterResult.kommune || '',
-            kreis: administrativeFields.kreis || kreis
-          });
+        if (nrwKatasterResult.knotenKennung) {
+          knotenNr = nrwKatasterResult.knotenKennung;
         }
       } else if (force || !knotenNr.trim()) {
         knotenNr = createVorlaeufigeKnotenNr({
@@ -579,7 +621,10 @@
       }
 
       if (nrwKatasterResult?.katasterkennung) {
-        nrwKatasterHinweis = `NRW-Katasterkennung gefunden: ${nrwKatasterResult.katasterkennung}`;
+        const pfostenHinweis = nrwPfostenCandidates.length
+          ? ` Zugehoerige Pfosten gefunden: ${nrwPfostenCandidates.map((pfosten) => pfosten.pfostenKennung).join(', ')}.`
+          : '';
+        nrwKatasterHinweis = `NRW-Knotenkennung gefunden: ${katasterkennung}. Knoten-Nr.: ${knotenNr}.${pfostenHinweis}`;
       } else if (knotenNr.startsWith('VORL-')) {
         nrwKatasterHinweis = `Keine NRW-Katasterkennung gefunden. Vorlaeufige Nummer erzeugt: ${knotenNr}`;
       } else {
@@ -602,7 +647,7 @@
         nrwObjectId,
         offizielleKnotenNr,
         decision: nrwKatasterResult?.katasterkennung
-          ? 'NRW-Webobjekt getrennt ausgewertet; knoten_nr nur offizielle Knoten-Nr. oder VORL-Fallback.'
+          ? 'NRW-Knotenkennung erkannt; knoten_nr entspricht knoten_kennung.'
           : 'Keine NRW-Kennung gefunden; vorlaeufige Nummer erzeugt.'
       });
 
@@ -746,6 +791,7 @@
     nrwObjectId = knoten.formData?.nrwObjectId ?? '';
     offizielleKnotenNr = knoten.formData?.offizielleKnotenNr ?? '';
     nrwKatasterHinweis = '';
+    nrwPfostenCandidates = [];
     status = knoten.status || 'bestand';
     knotenpunktNr = knotenpunktFieldValue(knoten.formData?.knotenpunktNr);
     bemerkung = knoten.formData?.bemerkung ?? '';
@@ -1300,7 +1346,7 @@
               method="POST"
               action={draftMode === 'create' ? '?/createKnoten' : '?/updateKnoten'}
               class="admin-form"
-              use:enhance={closeDraftOnSuccess}
+              use:enhance={submitKnotenWithDebug}
             >
               {#if draftMode === 'edit'}
                 <input type="hidden" name="id" value={editingKnotenId} />
@@ -1309,6 +1355,7 @@
               <input type="hidden" name="lat" value={draftPoint ? String(draftPoint.lat) : ''} />
               <input type="hidden" name="pfosten_kennung" value={pfostenKennung} />
               <input type="hidden" name="pfosten_nr" value={pfostenNr} />
+              <input type="hidden" name="nrw_pfosten_json" value={JSON.stringify(nrwPfostenCandidates)} />
 
               <fieldset class="kataster-form-section">
                 <legend>Knoten-Daten</legend>

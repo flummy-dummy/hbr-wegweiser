@@ -22,6 +22,16 @@ export type NrwKatasterResult = {
   kommune: string | null;
   knotenpunktNr: string | null;
   sourceUrl?: string | null;
+  relatedPfosten?: NrwPfostenCandidate[];
+};
+
+export type NrwPfostenCandidate = {
+  pfostenKennung: string;
+  pfostenNr: string;
+  rawValue: string;
+  objectId: string;
+  lon: number | null;
+  lat: number | null;
 };
 
 type NrwPoiCandidate = NrwKatasterResult & {
@@ -101,6 +111,62 @@ function lonLatToUtm32(lon: number, lat: number): { x: number; y: number } {
             ((5 - t + 9 * c + 4 * c * c) * a ** 4) / 24 +
             ((61 - 58 * t + t * t + 600 * c - 330 * secondEccentricitySquared) * a ** 6) / 720))
   };
+}
+
+function utm32ToLonLat(x: number, y: number): { lon: number; lat: number } | null {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+
+  const semiMajorAxis = 6378137;
+  const flattening = 1 / 298.257222101;
+  const scale = 0.9996;
+  const centralMeridian = ((32 * 6 - 183) * Math.PI) / 180;
+  const eccentricitySquared = flattening * (2 - flattening);
+  const secondEccentricitySquared = eccentricitySquared / (1 - eccentricitySquared);
+  const eccentricityPrime =
+    (1 - Math.sqrt(1 - eccentricitySquared)) / (1 + Math.sqrt(1 - eccentricitySquared));
+  const meridianArc = y / scale;
+  const mu =
+    meridianArc /
+    (semiMajorAxis *
+      (1 - eccentricitySquared / 4 - (3 * eccentricitySquared ** 2) / 64 - (5 * eccentricitySquared ** 3) / 256));
+  const footprintLatitude =
+    mu +
+    ((3 * eccentricityPrime) / 2 - (27 * eccentricityPrime ** 3) / 32) * Math.sin(2 * mu) +
+    ((21 * eccentricityPrime ** 2) / 16 - (55 * eccentricityPrime ** 4) / 32) * Math.sin(4 * mu) +
+    ((151 * eccentricityPrime ** 3) / 96) * Math.sin(6 * mu) +
+    ((1097 * eccentricityPrime ** 4) / 512) * Math.sin(8 * mu);
+  const sinFootprint = Math.sin(footprintLatitude);
+  const cosFootprint = Math.cos(footprintLatitude);
+  const tanFootprint = Math.tan(footprintLatitude);
+  const c = secondEccentricitySquared * cosFootprint * cosFootprint;
+  const t = tanFootprint * tanFootprint;
+  const radiusOfCurvature =
+    semiMajorAxis / Math.sqrt(1 - eccentricitySquared * sinFootprint * sinFootprint);
+  const meridianRadius =
+    (semiMajorAxis * (1 - eccentricitySquared)) /
+    (1 - eccentricitySquared * sinFootprint * sinFootprint) ** 1.5;
+  const d = (x - 500000) / (radiusOfCurvature * scale);
+  const lat =
+    footprintLatitude -
+    ((radiusOfCurvature * tanFootprint) / meridianRadius) *
+      (d ** 2 / 2 -
+        ((5 + 3 * t + 10 * c - 4 * c * c - 9 * secondEccentricitySquared) * d ** 4) / 24 +
+        ((61 + 90 * t + 298 * c + 45 * t * t - 252 * secondEccentricitySquared - 3 * c * c) * d ** 6) /
+          720);
+  const lon =
+    centralMeridian +
+    (d -
+      ((1 + 2 * t + c) * d ** 3) / 6 +
+      ((5 - 2 * c + 28 * t - 3 * c * c + 8 * secondEccentricitySquared + 24 * t * t) * d ** 5) / 120) /
+      cosFootprint;
+  const result = {
+    lon: (lon * 180) / Math.PI,
+    lat: (lat * 180) / Math.PI
+  };
+
+  return Number.isFinite(result.lon) && Number.isFinite(result.lat) ? result : null;
 }
 
 function buildPoiSearchRequest(x: number, y: number, radiusMeters: number): string {
@@ -324,6 +390,104 @@ async function runReferenceSearch(): Promise<void> {
   }
 }
 
+async function findRelatedPfostenCandidates(
+  knotenKennung: string | null,
+  x: number,
+  y: number
+): Promise<NrwPfostenCandidate[]> {
+  if (!knotenKennung) {
+    return [];
+  }
+
+  const requestBody = buildPoiSearchRequest(x, y, NRW_MAX_MATCH_DISTANCE_METERS);
+  const { response, rawResponse } = await postObjectSearch(requestBody);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const parser = new DOMParser();
+  const documentXml = parser.parseFromString(rawResponse, 'application/xml');
+  const objects = Array.from(documentXml.querySelectorAll('Object'));
+  const knotenKennungen = new Set(
+    objects.flatMap((objectElement) => {
+      if (getText(objectElement, 'Type') !== 'POI') {
+        return [];
+      }
+
+      const splitKennung = splitKatasterkennung(extractKatasterkennung(getText(objectElement, 'Value') ?? ''));
+      return splitKennung.knotenKennung ? [splitKennung.knotenKennung] : [];
+    })
+  );
+
+  if (knotenKennungen.size !== 1 || !knotenKennungen.has(knotenKennung)) {
+    console.log('NRW-Kataster: Automatische Pfostenzuordnung wegen mehrdeutiger Knotenkennung ausgelassen.', {
+      selectedKnotenKennung: knotenKennung,
+      foundKnotenKennungen: Array.from(knotenKennungen)
+    });
+    return [];
+  }
+
+  const relatedPfosten = new Map<string, NrwPfostenCandidate>();
+
+  for (const objectElement of objects) {
+    if (getText(objectElement, 'Type') !== 'POI') {
+      continue;
+    }
+
+    const katasterkennung = extractKatasterkennung(getText(objectElement, 'Value') ?? '');
+    const splitKennung = splitKatasterkennung(katasterkennung);
+
+    if (
+      splitKennung.knotenKennung !== knotenKennung ||
+      !splitKennung.pfostenKennung ||
+      !splitKennung.pfostenNr
+    ) {
+      continue;
+    }
+
+    const coords = getText(objectElement, 'Coords')?.split(',').map(Number) ?? [];
+    const objectX = Number.isFinite(coords[0]) ? coords[0] : null;
+    const objectY = Number.isFinite(coords[1]) ? coords[1] : null;
+
+    if (objectX !== null && objectY !== null && Math.hypot(objectX - x, objectY - y) > NRW_MAX_MATCH_DISTANCE_METERS) {
+      continue;
+    }
+
+    const transformedCoordinate = objectX !== null && objectY !== null ? utm32ToLonLat(objectX, objectY) : null;
+
+    relatedPfosten.set(splitKennung.pfostenKennung, {
+      pfostenKennung: splitKennung.pfostenKennung,
+      pfostenNr: splitKennung.pfostenNr,
+      rawValue: getText(objectElement, 'Value') ?? '',
+      objectId: getText(objectElement, 'ID') ?? '',
+      lon: transformedCoordinate?.lon ?? null,
+      lat: transformedCoordinate?.lat ?? null
+    });
+  }
+
+  return Array.from(relatedPfosten.values()).sort(
+    (left, right) => Number(left.pfostenNr) - Number(right.pfostenNr)
+  );
+}
+
+function candidateAsPfosten(candidate: NrwPoiCandidate): NrwPfostenCandidate | null {
+  if (!candidate.pfostenKennung || !candidate.pfostenNr || candidate.x === null || candidate.y === null) {
+    return null;
+  }
+
+  const transformedCoordinate = utm32ToLonLat(candidate.x, candidate.y);
+
+  return {
+    pfostenKennung: candidate.pfostenKennung,
+    pfostenNr: candidate.pfostenNr,
+    rawValue: candidate.rawValue ?? '',
+    objectId: candidate.objectId ?? '',
+    lon: transformedCoordinate?.lon ?? null,
+    lat: transformedCoordinate?.lat ?? null
+  };
+}
+
 export async function findNrwKatasterkennungForCoordinate(
   lon: number,
   lat: number,
@@ -387,7 +551,22 @@ export async function findNrwKatasterkennungForCoordinate(
       const candidate = candidates[0];
 
       if (candidate) {
-        const sourceUrl = await getSourceUrl(candidate.nr, candidate.category);
+        const [sourceUrl, foundRelatedPfosten] = await Promise.all([
+          getSourceUrl(candidate.nr, candidate.category),
+          findRelatedPfostenCandidates(candidate.knotenKennung, transformedCoordinate.x, transformedCoordinate.y)
+        ]);
+        const primaryPfosten = candidateAsPfosten(candidate);
+        const relatedPfostenByKennung = new Map(
+          foundRelatedPfosten.map((pfosten) => [pfosten.pfostenKennung, pfosten])
+        );
+
+        if (primaryPfosten) {
+          relatedPfostenByKennung.set(primaryPfosten.pfostenKennung, primaryPfosten);
+        }
+
+        const relatedPfosten = Array.from(relatedPfostenByKennung.values()).sort(
+          (left, right) => Number(left.pfostenNr) - Number(right.pfostenNr)
+        );
         const result = {
           katasterkennung: candidate.katasterkennung,
           knotenKennung: candidate.knotenKennung,
@@ -400,7 +579,8 @@ export async function findNrwKatasterkennungForCoordinate(
           offizielleKnotenNr: candidate.offizielleKnotenNr,
           kommune: candidate.kommune,
           knotenpunktNr: candidate.knotenpunktNr,
-          sourceUrl
+          sourceUrl,
+          relatedPfosten
         };
 
         // TODO DEBUG NRW-KATASTER
@@ -417,6 +597,7 @@ export async function findNrwKatasterkennungForCoordinate(
           offizielleKnotenNr: result.offizielleKnotenNr,
           knotenpunktNr: result.knotenpunktNr,
           kommune: result.kommune,
+          relatedPfosten: result.relatedPfosten.map((pfosten) => pfosten.pfostenKennung),
           decision: 'NRW-Kennung ueber korrekte x/y-Achsen gefunden.'
         });
 
