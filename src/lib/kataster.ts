@@ -19,6 +19,19 @@ export type KatasterCollectionType =
   | 'themenroute'
   | 'knotenpunktverbindung';
 
+export type KatasterWegweiserInfo = {
+  id: string;
+  title: string;
+  pfostenId?: string;
+  wegweiser_nr?: string;
+  offizielle_wegweiser_nr?: string;
+  kataster_wegweiser_nr?: string;
+  status?: string;
+  wegweiser_typ?: string;
+  richtung?: string;
+  ziele: string[];
+};
+
 export type KatasterMapRecord = {
   id: string;
   collection: KatasterCollectionType;
@@ -60,6 +73,7 @@ export type KatasterMapRecord = {
     startKnotenId?: string;
     endKnotenId?: string;
   };
+  relatedWegweiser?: KatasterWegweiserInfo[];
 };
 
 export type KatasterFeatureInfo = {
@@ -79,4 +93,5 @@ export type KatasterFeatureInfo = {
     status?: string;
     pfostenIndex?: number | null;
   }>;
+  relatedWegweiser?: KatasterWegweiserInfo[];
 };

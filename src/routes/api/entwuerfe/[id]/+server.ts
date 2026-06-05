@@ -17,7 +17,15 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     return json({ message: 'Ungueltiges JSON im Request-Body.' }, { status: 400 });
   }
 
-  const parsedPayload = parseDraftPayload((payload ?? {}) as { titel?: unknown; wegweiser?: unknown });
+  const parsedPayload = parseDraftPayload((payload ?? {}) as {
+    titel?: unknown;
+    wegweiser?: unknown;
+    wegweiser_nr?: unknown;
+    offizielle_wegweiser_nr?: unknown;
+    kataster_wegweiser_nr?: unknown;
+    pfosten?: unknown;
+    status?: unknown;
+  });
 
   if (!parsedPayload) {
     return json({ message: 'Die Wegweiser-Konfiguration ist unvollstaendig.' }, { status: 400 });
@@ -35,10 +43,9 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     );
   }
 
-  const recordData = createDraftRecordData(parsedPayload.titel, parsedPayload.wegweiser);
+  const recordData = createDraftRecordData(parsedPayload.titel, parsedPayload.wegweiser, parsedPayload.meta);
 
   try {
-    console.log({ id, ...recordData });
     const record = await pb.collection('wegweiser_entwuerfe').update(id, recordData);
 
     return json({

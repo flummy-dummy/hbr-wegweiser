@@ -2,7 +2,7 @@
   import { invalidateAll } from '$app/navigation';
   import WegweiserForm from '$lib/components/WegweiserForm.svelte';
   import WegweiserPreview from '$lib/components/WegweiserPreview.svelte';
-  import { normalizeWegweiserData, validateWegweiser } from '$lib/wegweiser';
+  import { normalizeWegweiserData, validateWegweiser, wegweiserStatusOptions } from '$lib/wegweiser';
   import type {
     WegweiserData,
     WegweiserDraftListItem,
@@ -18,8 +18,15 @@
       drafts: WegweiserDraftListItem[];
       pictogramOptions: WegweiserOption[];
       routeOptions: WegweiserOption[];
+      pfostenOptions: Array<{ value: string; label: string }>;
       wegweiserFormats: WegweiserFormat[];
       wegweiserFormatErrors: WegweiserFormatErrorMap;
+      editorContext: {
+        draftId: string;
+        pfostenId: string;
+        pfostenKennung: string;
+        knotenId: string;
+      };
       pocketBaseWarning: string | null;
     };
   } = $props();
@@ -67,13 +74,50 @@
   let saveDraftError = $state<string | null>(null);
   let loadDraftError = $state<string | null>(null);
   let deleteDraftError = $state<string | null>(null);
+  let wegweiserNr = $state('');
+  let offizielleWegweiserNr = $state('');
+  let katasterWegweiserNr = $state('');
+  let pfostenId = $state('');
+  let wegweiserStatus = $state('');
+  let initialDraftLoaded = $state(false);
   const errors = $derived(validateWegweiser(wegweiser));
   const filteredDrafts = $derived(
-    data.drafts.filter((draft) =>
-      draft.titel.toLowerCase().includes(draftSearch.trim().toLowerCase())
-    )
+    data.drafts.filter((draft) => {
+      const search = draftSearch.trim().toLowerCase();
+
+      if (!search) {
+        return true;
+      }
+
+      return [
+        draft.titel,
+        draft.wegweiser_nr,
+        draft.offizielle_wegweiser_nr,
+        draft.kataster_wegweiser_nr
+      ].some((value) => (value ?? '').toLowerCase().includes(search));
+    })
   );
   const selectedDraft = $derived(data.drafts.find((entry) => entry.id === selectedDraftId) ?? null);
+  const selectedPfostenOptionExists = $derived(
+    !pfostenId || data.pfostenOptions.some((option) => option.value === pfostenId)
+  );
+  const returnToPfostenUrl = $derived.by(() => {
+    const params = new URLSearchParams();
+
+    if (data.editorContext.pfostenId) {
+      params.set('pfostenId', data.editorContext.pfostenId);
+    }
+
+    if (data.editorContext.pfostenKennung) {
+      params.set('pfosten', data.editorContext.pfostenKennung);
+    }
+
+    if (!params.toString()) {
+      return '';
+    }
+
+    return `/kataster/karte?${params.toString()}`;
+  });
 
   $effect(() => {
     if (currentDraftId || isDraftTitleManual) {
@@ -81,6 +125,22 @@
     }
 
     entwurfTitel = getSuggestedDraftTitle(wegweiser);
+  });
+
+  $effect(() => {
+    if (initialDraftLoaded || !data.editorContext.draftId) {
+      return;
+    }
+
+    const draft = data.drafts.find((entry) => entry.id === data.editorContext.draftId);
+
+    if (!draft) {
+      return;
+    }
+
+    selectedDraftId = draft.id;
+    loadDraft();
+    initialDraftLoaded = true;
   });
 
   function formatDraftUpdated(value: string) {
@@ -98,6 +158,16 @@
       dateStyle: 'short',
       timeStyle: 'short'
     }).format(date);
+  }
+
+  function formatDraftNumberMeta(draft: WegweiserDraftListItem): string {
+    const parts = [
+      draft.wegweiser_nr || 'keine interne Nr.',
+      `Offizielle Nr.: ${draft.offizielle_wegweiser_nr || '-'}`,
+      `Kataster: ${draft.kataster_wegweiser_nr || '-'}`
+    ];
+
+    return parts.join('  ');
   }
 
   function loadDraft() {
@@ -138,6 +208,11 @@
 
     wegweiser = normalized.data;
     entwurfTitel = draft.titel;
+    wegweiserNr = draft.wegweiser_nr ?? '';
+    offizielleWegweiserNr = draft.offizielle_wegweiser_nr ?? '';
+    katasterWegweiserNr = draft.kataster_wegweiser_nr ?? '';
+    pfostenId = draft.pfosten ?? '';
+    wegweiserStatus = draft.status ?? '';
     isDraftTitleManual = true;
     currentDraftId = draft.id;
     isDraftMenuOpen = false;
@@ -146,6 +221,11 @@
   function resetToNewDraft() {
     wegweiser = getEmptyWegweiserData();
     entwurfTitel = '';
+    wegweiserNr = '';
+    offizielleWegweiserNr = '';
+    katasterWegweiserNr = '';
+    pfostenId = '';
+    wegweiserStatus = '';
     isDraftTitleManual = false;
     currentDraftId = null;
     selectedDraftId = '';
@@ -225,7 +305,12 @@
         },
         body: JSON.stringify({
           titel: entwurfTitel,
-          wegweiser
+          wegweiser,
+          wegweiser_nr: wegweiserNr,
+          offizielle_wegweiser_nr: offizielleWegweiserNr,
+          kataster_wegweiser_nr: katasterWegweiserNr,
+          pfosten: pfostenId,
+          status: wegweiserStatus
         })
       });
 
@@ -260,6 +345,11 @@
 <main class="page editor-page">
   <header class="editor-header">
     <a href="/">Startseite</a>
+    {#if returnToPfostenUrl}
+      <a class="button secondary-button button-small" href={returnToPfostenUrl}>
+        ← Zurueck zum Pfosten
+      </a>
+    {/if}
     <h1>Editor-Test</h1>
     <p>Erster fachlicher MVP für einen HBR-Pfeilwegweiser.</p>
     {#if data.pocketBaseWarning}
@@ -311,6 +401,7 @@
                           onclick={() => selectDraft(draft.id)}
                         >
                           <strong>{draft.titel}</strong>
+                          <small>{formatDraftNumberMeta(draft)}</small>
                           <small>{formatDraftUpdated(draft.updated)}</small>
                         </button>
                         <button
@@ -376,6 +467,11 @@
       {#if deleteDraftError}
         <p class="form-error">{deleteDraftError}</p>
       {/if}
+      {#if selectedDraft?.pfosten}
+        <p class="draft-kataster-meta">
+          Kataster-Wegweiser-Nr.: <strong>{selectedDraft.kataster_wegweiser_nr || 'keine Angabe'}</strong>
+        </p>
+      {/if}
       <div class="draft-save-panel">
         <label>
           <span>Entwurfstitel</span>
@@ -389,6 +485,72 @@
             }}
           />
         </label>
+        <div class="draft-meta-grid">
+          <label>
+            <span>Status</span>
+            <select
+              value={wegweiserStatus}
+              onchange={(event) => {
+                wegweiserStatus = event.currentTarget.value;
+              }}
+            >
+              <option value="">kein Status</option>
+              {#each wegweiserStatusOptions as option}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            <span>Interne Wegweisernummer</span>
+            <input
+              placeholder="WW-000123"
+              type="text"
+              value={wegweiserNr}
+              oninput={(event) => {
+                wegweiserNr = event.currentTarget.value;
+              }}
+            />
+          </label>
+          <label>
+            <span>Offizielle Wegweisernummer</span>
+            <input
+              placeholder="305678"
+              type="text"
+              value={offizielleWegweiserNr}
+              oninput={(event) => {
+                offizielleWegweiserNr = event.currentTarget.value;
+              }}
+            />
+          </label>
+          <label>
+            <span>Kataster-Wegweisernummer</span>
+            <input
+              placeholder="301803"
+              type="text"
+              value={katasterWegweiserNr}
+              oninput={(event) => {
+                katasterWegweiserNr = event.currentTarget.value;
+              }}
+            />
+          </label>
+          <label>
+            <span>Pfosten</span>
+            <select
+              value={pfostenId}
+              onchange={(event) => {
+                pfostenId = event.currentTarget.value;
+              }}
+            >
+              <option value="">nicht vergeben</option>
+              {#if pfostenId && !selectedPfostenOptionExists}
+                <option value={pfostenId}>{pfostenId}</option>
+              {/if}
+              {#each data.pfostenOptions as option}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
         <div class="draft-save-actions">
           <button class="button draft-save-button" disabled={isSavingDraft} type="button" onclick={() => saveDraft(false)}>
             {isSavingDraft ? 'Speichert...' : currentDraftId ? 'Entwurf aktualisieren' : 'Entwurf speichern'}

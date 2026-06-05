@@ -1,9 +1,9 @@
 <script lang="ts">
   import { applyAction, enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/state';
   import KatasterMap from '$lib/components/KatasterMap.svelte';
-  import type { GeoJsonGeometry, KatasterMapRecord } from '$lib/kataster';
+  import type { GeoJsonGeometry, KatasterMapRecord, KatasterWegweiserInfo } from '$lib/kataster';
   import { findNrwKatasterkennungForCoordinate } from '$lib/nrw-kataster';
   import type { NrwPfostenCandidate } from '$lib/nrw-kataster';
   import {
@@ -25,6 +25,10 @@
     action?: string;
     message?: string;
     values?: Record<string, FormDataEntryValue>;
+    wegweiserId?: string;
+    pfostenId?: string;
+    pfostenKennung?: string;
+    knotenId?: string;
   };
 
   type EdgeDraft = {
@@ -45,10 +49,12 @@
     data: {
       knoten: KatasterMapRecord[];
       pfosten: KatasterMapRecord[];
+      wegweiser: KatasterWegweiserInfo[];
       kanten: KatasterMapRecord[];
       themenrouten: KatasterMapRecord[];
       knotenpunktverbindungen: KatasterMapRecord[];
       pocketBaseWarning: string | null;
+      selectedPfostenId?: string;
     };
     form?: KnotenFormState;
   } = $props();
@@ -347,9 +353,15 @@
     parseNrwPfostenCandidates(stringValue(initialValues, 'nrw_pfosten_json'))
   );
   let edgeEditFormElement = $state<HTMLFormElement | null>(null);
+  let wegweiserDialogPfostenId = $state('');
+  let wegweiserSearch = $state('');
+  let selectedExistingWegweiserId = $state('');
+  let newWegweiserTitle = $state('');
+  let wegweiserWorkflowMessage = $state('');
   let osmBezeichnungRequestId = 0;
   const canEdit = $derived(page.data.auth?.canEdit === true);
   const visiblePfosten = $derived(data.pfosten.filter((entry) => entry.status !== 'zu_entfernen'));
+  const focusedPfostenId = $derived(data.selectedPfostenId ?? '');
 
   const closeDraftOnSuccess: SubmitFunction = () => {
     return async ({ result }) => {
@@ -359,6 +371,56 @@
         await invalidateAll();
         cancelDraft();
       }
+    };
+  };
+
+  const closeWegweiserDialogOnSuccess: SubmitFunction = () => {
+    return async ({ result }) => {
+      await applyAction(result);
+
+      if (result.type === 'success') {
+        const resultData = result.data as KnotenFormState | undefined;
+        wegweiserWorkflowMessage = resultData?.message ?? 'Wegweiser erfolgreich zugeordnet.';
+        wegweiserDialogPfostenId = '';
+        wegweiserSearch = '';
+        selectedExistingWegweiserId = '';
+        newWegweiserTitle = '';
+        await invalidateAll();
+      }
+    };
+  };
+
+  const openEditorAfterWegweiserCreate: SubmitFunction = () => {
+    return async ({ result }) => {
+      await applyAction(result);
+
+      if (result.type !== 'success') {
+        return;
+      }
+
+      const resultData = result.data as KnotenFormState | undefined;
+      const wegweiserId = resultData?.wegweiserId;
+
+      if (!wegweiserId) {
+        wegweiserWorkflowMessage = resultData?.message ?? 'Wegweiser erfolgreich angelegt.';
+        await invalidateAll();
+        return;
+      }
+
+      const params = new URLSearchParams({
+        draft: wegweiserId,
+        pfostenId: resultData?.pfostenId ?? wegweiserDialogPfostenId
+      });
+
+      if (resultData?.pfostenKennung) {
+        params.set('pfosten', resultData.pfostenKennung);
+      }
+
+      if (resultData?.knotenId) {
+        params.set('knotenId', resultData.knotenId);
+      }
+
+      await goto(`/editor/test?${params.toString()}`);
     };
   };
 
@@ -405,6 +467,81 @@
     nrwKatasterHinweis = '';
     nrwPfostenCandidates = [];
     selectedKnotenForPfostenId = '';
+  }
+
+  function openWegweiserDialog(pfostenId: string) {
+    if (!canEdit) {
+      return;
+    }
+
+    wegweiserDialogPfostenId = pfostenId;
+    wegweiserSearch = '';
+    selectedExistingWegweiserId = '';
+    newWegweiserTitle = '';
+    wegweiserWorkflowMessage = '';
+  }
+
+  function closeWegweiserDialog() {
+    wegweiserDialogPfostenId = '';
+    wegweiserSearch = '';
+    selectedExistingWegweiserId = '';
+    newWegweiserTitle = '';
+  }
+
+  function wegweiserLabel(wegweiser: KatasterWegweiserInfo): string {
+    return [
+      wegweiser.wegweiser_nr || wegweiser.title || 'Wegweiser',
+      wegweiser.offizielle_wegweiser_nr ? `Offizielle Nr.: ${wegweiser.offizielle_wegweiser_nr}` : '',
+      wegweiser.kataster_wegweiser_nr ? `Kataster: ${wegweiser.kataster_wegweiser_nr}` : ''
+    ]
+      .filter(Boolean)
+      .join('  ');
+  }
+
+  function selectedWegweiserPfosten(): KatasterMapRecord | null {
+    return wegweiserDialogPfostenId ? findPfostenById(wegweiserDialogPfostenId) : null;
+  }
+
+  function filteredWegweiserOptions(): KatasterWegweiserInfo[] {
+    const query = wegweiserSearch.trim().toLowerCase();
+
+    return data.wegweiser
+      .filter((wegweiser) => wegweiser.pfostenId !== wegweiserDialogPfostenId)
+      .filter((wegweiser) => {
+        if (!query) {
+          return true;
+        }
+
+        return [
+          wegweiser.wegweiser_nr,
+          wegweiser.offizielle_wegweiser_nr,
+          wegweiser.kataster_wegweiser_nr,
+          wegweiser.title
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query));
+      })
+      .slice(0, 50);
+  }
+
+  function editorUrlForWegweiser(wegweiserId: string, pfostenId: string): string {
+    const pfosten = findPfostenById(pfostenId);
+    const params = new URLSearchParams({
+      draft: wegweiserId,
+      pfostenId
+    });
+    const pfostenKennung = pfosten?.formData?.pfostenKennung || pfosten?.title || '';
+    const knotenId = pfosten?.formData?.linkedKnotenId ?? '';
+
+    if (pfostenKennung) {
+      params.set('pfosten', pfostenKennung);
+    }
+
+    if (knotenId) {
+      params.set('knotenId', knotenId);
+    }
+
+    return `/editor/test?${params.toString()}`;
   }
 
   function resetEdgeDraft() {
@@ -1008,6 +1145,9 @@
     </div>
 
     <div class="kataster-edit-toolbar">
+      {#if wegweiserWorkflowMessage}
+        <span class="success-message">{wegweiserWorkflowMessage}</span>
+      {/if}
       {#if canEdit}
         <button
           type="button"
@@ -1090,6 +1230,11 @@
         onEdgeFeatureSelect={handleEdgeFeatureSelect}
         onPfostenCreateRequest={startPfostenCreationMode}
         onPfostenEditRequest={handleEditPfostenSelect}
+        onWegweiserAddRequest={openWegweiserDialog}
+        onWegweiserEditRequest={(wegweiserId, pfostenId) => {
+          void goto(editorUrlForWegweiser(wegweiserId, pfostenId));
+        }}
+        focusPfostenId={focusedPfostenId}
         onEdgeVertexSelect={handleEdgeVertexSelect}
         onEdgeGeometryChange={handleEdgeGeometryChange}
         onEdgeEditSaveRequest={requestEdgeSave}
@@ -1552,4 +1697,98 @@
       {/if}
     </div>
   </section>
+
+  {#if wegweiserDialogPfostenId}
+    <div class="kataster-dialog-backdrop" role="presentation">
+      <div
+        class="kataster-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="wegweiser-dialog-title"
+        tabindex="-1"
+      >
+        <div class="kataster-dialog-header">
+          <div>
+            <h2 id="wegweiser-dialog-title">Wegweiser hinzufuegen</h2>
+            <p>{selectedWegweiserPfosten()?.title ?? 'Ausgewaehlter Pfosten'}</p>
+          </div>
+          <button class="button secondary-button button-small" type="button" onclick={closeWegweiserDialog}>
+            Schliessen
+          </button>
+        </div>
+
+        {#if form?.message && (form.action === 'assignWegweiserToPfosten' || form.action === 'createWegweiserAtPfosten')}
+          <p class:success-message={form.success} class:error-message={!form.success} class="kataster-form-message">
+            {form.message}
+          </p>
+        {/if}
+
+        <div class="wegweiser-pfosten-dialog-grid">
+          <form
+            method="POST"
+            action="?/assignWegweiserToPfosten"
+            class="admin-form"
+            use:enhance={closeWegweiserDialogOnSuccess}
+          >
+            <fieldset class="kataster-form-section">
+              <legend>Bestehenden Wegweiser auswaehlen</legend>
+              <input type="hidden" name="pfosten" value={wegweiserDialogPfostenId} />
+              <label class="field">
+                <span>Suche</span>
+                <input
+                  type="search"
+                  bind:value={wegweiserSearch}
+                  placeholder="Nummer oder Titel"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="field">
+                <span>Wegweiser</span>
+                <select name="wegweiser" bind:value={selectedExistingWegweiserId} required>
+                  <option value="">Bitte auswaehlen</option>
+                  {#each filteredWegweiserOptions() as wegweiser}
+                    <option value={wegweiser.id}>{wegweiserLabel(wegweiser)}</option>
+                  {/each}
+                </select>
+              </label>
+            </fieldset>
+            <div class="kataster-create-actions">
+              <button class="button" type="submit" disabled={!selectedExistingWegweiserId}>
+                Zuordnen
+              </button>
+            </div>
+          </form>
+
+          <form
+            method="POST"
+            action="?/createWegweiserAtPfosten"
+            class="admin-form"
+            use:enhance={openEditorAfterWegweiserCreate}
+          >
+            <fieldset class="kataster-form-section">
+              <legend>Neuen Wegweiser anlegen</legend>
+              <input type="hidden" name="pfosten" value={wegweiserDialogPfostenId} />
+              <label class="field">
+                <span>Titel</span>
+                <input
+                  name="titel"
+                  bind:value={newWegweiserTitle}
+                  placeholder="Neuer Wegweiser-Entwurf"
+                />
+              </label>
+              <p class="kataster-create-coordinates">Status wird als entwurf gespeichert.</p>
+            </fieldset>
+            <div class="kataster-create-actions">
+              <button class="button" type="submit">Neu anlegen und bearbeiten</button>
+            </div>
+          </form>
+        </div>
+        <div class="kataster-dialog-footer">
+          <button class="button secondary-button" type="button" onclick={closeWegweiserDialog}>
+            Schliessen
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>

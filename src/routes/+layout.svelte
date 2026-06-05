@@ -27,6 +27,7 @@
         </span>
         <a href="/kataster/karte">Kataster</a>
         {#if authState().canEdit}
+          <a href="/admin/wegweiser">Wegweiser</a>
           <a href="/admin/themenrouten">Admin</a>
         {/if}
         <form method="POST" action="/logout">

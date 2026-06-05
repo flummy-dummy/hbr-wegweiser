@@ -36,6 +36,14 @@ export type WegweiserFormat = {
   svg: string;
 };
 export type WegweiserFormatErrorMap = Record<string, string>;
+export type WegweiserStatus = 'entwurf' | 'bestellt' | 'produziert' | 'montiert' | 'entfernt';
+export const wegweiserStatusOptions: Array<{ value: WegweiserStatus; label: string }> = [
+  { value: 'entwurf', label: 'entwurf' },
+  { value: 'bestellt', label: 'bestellt' },
+  { value: 'produziert', label: 'produziert' },
+  { value: 'montiert', label: 'montiert' },
+  { value: 'entfernt', label: 'entfernt' }
+];
 type WegweiserFormatMeta = Pick<WegweiserFormat, 'slug' | 'name' | 'description'>;
 type TabellenwegweiserVariant = 'straight' | 'right' | 'left';
 const wegweiserFontFamily = '"B612", sans-serif';
@@ -100,6 +108,13 @@ export type WegweiserDraftListItem = {
   titel: string;
   updated: string;
   jsonKonfiguration: unknown;
+  wegweiser_nr?: string;
+  offizielle_wegweiser_nr?: string;
+  kataster_wegweiser_nr?: string;
+  pfosten?: string;
+  status?: WegweiserStatus;
+  wegweiser_typ?: string;
+  richtung?: string;
 };
 
 export const wegweiserLayout = {

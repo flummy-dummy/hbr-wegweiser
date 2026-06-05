@@ -1,5 +1,7 @@
 import { ensurePermission } from '$lib/server/auth';
+import { createDraftRecordData } from '$lib/server/draft-record';
 import { loadKatasterMapData } from '$lib/server/kataster';
+import type { WegweiserData } from '$lib/wegweiser';
 import { error, fail } from '@sveltejs/kit';
 import PocketBase, { type RecordModel } from 'pocketbase';
 import type { Actions, PageServerLoad } from './$types';
@@ -13,6 +15,20 @@ type SubmittedNrwPfosten = {
   nrwObjectId: string;
   lon: number | null;
   lat: number | null;
+};
+
+const emptyWegweiserData: WegweiserData = {
+  farDestination: '',
+  farDistance: '',
+  farPictograms: [],
+  farRoutePictograms: [],
+  nearDestination: '',
+  nearDistance: '',
+  nearPictograms: [],
+  nearRoutePictograms: [],
+  formatSlug: 'pfeilwegweiser_rechts',
+  direction: 'right',
+  routes: []
 };
 
 const KNOWN_COLLECTION_FIELDS: Record<string, Set<string>> = {
@@ -36,8 +52,37 @@ const KNOWN_COLLECTION_FIELDS: Record<string, Set<string>> = {
   ])
 };
 
-export const load: PageServerLoad = async ({ locals }) => {
-  return await loadKatasterMapData(locals.pb);
+export const load: PageServerLoad = async ({ locals, url }) => {
+  const data = await loadKatasterMapData(locals.pb);
+  const selectedPfostenId = url.searchParams.get('pfostenId')?.trim() || '';
+  const selectedPfostenKennung = url.searchParams.get('pfosten')?.trim() || '';
+
+  if (selectedPfostenId) {
+    return {
+      ...data,
+      selectedPfostenId
+    };
+  }
+
+  if (selectedPfostenKennung) {
+    const selectedPfosten = data.pfosten.find((entry) => {
+      return (
+        entry.formData?.pfostenKennung === selectedPfostenKennung ||
+        entry.formData?.pfostenNr === selectedPfostenKennung ||
+        entry.title === selectedPfostenKennung
+      );
+    });
+
+    return {
+      ...data,
+      selectedPfostenId: selectedPfosten?.id ?? ''
+    };
+  }
+
+  return {
+    ...data,
+    selectedPfostenId: ''
+  };
 };
 
 function formValue(values: FormData, field: string): string {
@@ -480,6 +525,18 @@ function relationFieldValue(record: RecordModel, field: string): string | null {
   return null;
 }
 
+function formValueFromRecord(record: RecordModel, fields: string[]): string {
+  for (const field of fields) {
+    const value = record[field];
+
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return '';
+}
+
 function isValidLineStringCoordinates(value: unknown): value is [number, number][] {
   return (
     Array.isArray(value) &&
@@ -658,6 +715,93 @@ function mapKnotenRecord(record: RecordModel) {
 }
 
 export const actions: Actions = {
+  assignWegweiserToPfosten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
+    const pfostenId = formValue(values, 'pfosten');
+    const wegweiserId = formValue(values, 'wegweiser');
+
+    if (!pfostenId || !wegweiserId) {
+      return fail(400, {
+        success: false,
+        action: 'assignWegweiserToPfosten',
+        message: 'Pfosten und Wegweiser sind erforderlich.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      const pfostenRecord = await pbAdmin.collection('pfosten').getOne<RecordModel>(pfostenId);
+      await pbAdmin.collection('wegweiser_entwuerfe').update(wegweiserId, {
+        pfosten: pfostenId
+      });
+
+      return {
+        success: true,
+        action: 'assignWegweiserToPfosten',
+        message: 'Wegweiser erfolgreich zugeordnet.',
+        wegweiserId,
+        pfostenId,
+        pfostenKennung: formValueFromRecord(pfostenRecord, ['pfosten_kennung', 'pfosten_nr']),
+        knotenId: relationFieldValue(pfostenRecord, 'knoten') ?? ''
+      };
+    } catch (error) {
+      console.error('Wegweiser konnte nicht dem Pfosten zugeordnet werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'assignWegweiserToPfosten',
+        message: describePocketBaseError(error, 'Wegweiser konnte nicht dem Pfosten zugeordnet werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
+  createWegweiserAtPfosten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
+    const pfostenId = formValue(values, 'pfosten');
+    const titel = formValue(values, 'titel') || 'Neuer Wegweiser-Entwurf';
+
+    if (!pfostenId) {
+      return fail(400, {
+        success: false,
+        action: 'createWegweiserAtPfosten',
+        message: 'Der zugehoerige Pfosten fehlt.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      const pfostenRecord = await pbAdmin.collection('pfosten').getOne<RecordModel>(pfostenId);
+      const record = await pbAdmin.collection('wegweiser_entwuerfe').create(
+        createDraftRecordData(titel, emptyWegweiserData, {
+          pfosten: pfostenId,
+          status: 'entwurf'
+        })
+      );
+
+      return {
+        success: true,
+        action: 'createWegweiserAtPfosten',
+        message: 'Wegweiser erfolgreich angelegt.',
+        wegweiserId: String(record.id ?? ''),
+        pfostenId,
+        pfostenKennung: formValueFromRecord(pfostenRecord, ['pfosten_kennung', 'pfosten_nr']),
+        knotenId: relationFieldValue(pfostenRecord, 'knoten') ?? ''
+      };
+    } catch (error) {
+      console.error('Wegweiser konnte nicht am Pfosten angelegt werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'createWegweiserAtPfosten',
+        message: describePocketBaseError(error, 'Wegweiser konnte nicht am Pfosten angelegt werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
   createKnoten: async (event) => {
     const pbAdmin = getAuthorizedPocketBase(event, 'edit');
     const values = await event.request.formData();

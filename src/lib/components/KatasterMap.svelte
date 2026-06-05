@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import type { KatasterFeatureInfo, KatasterMapRecord } from '$lib/kataster';
   import Feature from 'ol/Feature';
   import type Collection from 'ol/Collection';
@@ -39,6 +39,7 @@
     kanten = [],
     themenrouten = [],
     knotenpunktverbindungen = [],
+    focusPfostenId = '',
     draftMode = 'none',
     draftPoint = null,
     edgeDraft = null,
@@ -50,6 +51,8 @@
     onEdgeFeatureSelect = (_kanteId: string) => {},
     onPfostenCreateRequest = (_knotenId: string) => {},
     onPfostenEditRequest = (_pfostenId: string) => {},
+    onWegweiserAddRequest = (_pfostenId: string) => {},
+    onWegweiserEditRequest = (_wegweiserId: string, _pfostenId: string) => {},
     onEdgeVertexSelect = (_index: number | null) => {},
     onEdgeGeometryChange = (_points: DraftPoint[]) => {},
     onEdgeEditSaveRequest = () => {}
@@ -59,6 +62,7 @@
     kanten: KatasterMapRecord[];
     themenrouten: KatasterMapRecord[];
     knotenpunktverbindungen: KatasterMapRecord[];
+    focusPfostenId?: string;
     draftMode?: DraftMode;
     draftPoint?: DraftPoint | null;
     edgeDraft?: EdgeDraft | null;
@@ -70,6 +74,8 @@
     onEdgeFeatureSelect?: (kanteId: string) => void;
     onPfostenCreateRequest?: (knotenId: string) => void;
     onPfostenEditRequest?: (pfostenId: string) => void;
+    onWegweiserAddRequest?: (pfostenId: string) => void;
+    onWegweiserEditRequest?: (wegweiserId: string, pfostenId: string) => void;
     onEdgeVertexSelect?: (index: number | null) => void;
     onEdgeGeometryChange?: (points: DraftPoint[]) => void;
     onEdgeEditSaveRequest?: () => void;
@@ -237,6 +243,45 @@
       }));
   }
 
+  function wegweiserNumberLine(wegweiserInfo: NonNullable<KatasterFeatureInfo['relatedWegweiser']>[number]): string {
+    return [
+      wegweiserInfo.wegweiser_nr || 'keine interne Nr.',
+      `Offizielle Nr.: ${wegweiserInfo.offizielle_wegweiser_nr || '-'}`,
+      `Kataster: ${wegweiserInfo.kataster_wegweiser_nr || '-'}`
+    ].join('  ');
+  }
+
+  function wegweiserStatusLine(status: string | undefined): string {
+    return `Status: ${status || 'kein Status'}`;
+  }
+
+  function pfostenDetails(record: KatasterMapRecord): KatasterFeatureInfo['details'] {
+    const entries = [
+      ['Pfostenkennung', record.formData?.pfostenKennung],
+      ['Laufende Pfostennummer', record.formData?.pfostenIndex ? String(record.formData.pfostenIndex) : undefined],
+      ['Pfosten-Nr.', record.formData?.pfostenNr],
+      ['Typ', record.formData?.pfostenTyp],
+      ['Material', record.formData?.pfostenMaterial],
+      ['Foto-Kennung', record.formData?.pfostenFotoKennung],
+      ['NRW-Rohwert', record.formData?.nrwRawValue],
+      ['NRW-Object-ID', record.formData?.nrwObjectId]
+    ] as const;
+
+    return entries.flatMap(([label, value]) => (value ? [{ label, value }] : []));
+  }
+
+  function selectPfostenRecord(record: KatasterMapRecord) {
+    selectedFeatureInfo = {
+      id: record.id,
+      collection: 'pfosten',
+      title: record.title,
+      subtitle: record.subtitle,
+      status: record.status || 'ohne Status',
+      details: pfostenDetails(record),
+      relatedWegweiser: record.relatedWegweiser ?? []
+    };
+  }
+
   function getSelectedFeatureInfo(feature: Feature<Geometry>): KatasterFeatureInfo {
     const info = katasterMapModule?.getFeatureInfo(feature) ?? {
       id: feature.get('id') || String(feature.getId() ?? ''),
@@ -247,7 +292,18 @@
     };
 
     if (feature.get('collection') !== 'knoten') {
-      return info;
+      if (feature.get('collection') !== 'pfosten') {
+        return info;
+      }
+
+      const featureId = feature.get('id') ?? feature.getId();
+      const selectedPfosten =
+        typeof featureId === 'string' ? pfosten.find((entry) => entry.id === featureId) : null;
+
+      return {
+        ...info,
+        relatedWegweiser: selectedPfosten?.relatedWegweiser ?? []
+      };
     }
 
     const featureId = feature.get('id') ?? feature.getId();
@@ -285,6 +341,14 @@
 
     edgeVertexSource?.clear();
     edgeVertexSource?.addFeatures(createEdgeVertexFeatures(edgeDraft));
+
+    const currentSelection = untrack(() => selectedFeatureInfo);
+    if (currentSelection?.collection === 'pfosten' && currentSelection.id) {
+      const selectedPfosten = pfosten.find((entry) => entry.id === currentSelection.id);
+      if (selectedPfosten) {
+        selectPfostenRecord(selectedPfosten);
+      }
+    }
   }
 
   function syncTranslateInteraction() {
@@ -330,6 +394,18 @@
     syncEdgeModifyInteraction();
     syncDragPanInteraction();
     updateMapCursor();
+  });
+
+  $effect(() => {
+    if (!focusPfostenId || draftMode !== 'none') {
+      return;
+    }
+
+    const selectedPfosten = pfosten.find((entry) => entry.id === focusPfostenId);
+
+    if (selectedPfosten) {
+      selectPfostenRecord(selectedPfosten);
+    }
   });
 
   onMount(() => {
@@ -433,14 +509,14 @@
       );
       map.addLayer(
         new VectorLayer({
-          source: pfostenSource,
-          style: katasterMap.getKatasterStyle('pfosten')
+          source: knotenSource,
+          style: katasterMap.getKatasterStyle('knoten')
         })
       );
       map.addLayer(
         new VectorLayer({
-          source: knotenSource,
-          style: katasterMap.getKatasterStyle('knoten')
+          source: pfostenSource,
+          style: katasterMap.getKatasterStyle('pfosten')
         })
       );
       map.addLayer(
@@ -873,6 +949,41 @@
           {/each}
         </ul>
       {/if}
+      {#if selectedFeatureInfo.collection === 'pfosten'}
+        <h3>Zugeordnete Wegweiser</h3>
+        {#if selectedFeatureInfo.relatedWegweiser?.length}
+          <ul class="kataster-related-list">
+            {#each selectedFeatureInfo.relatedWegweiser as wegweiserInfo}
+              <li>
+                <strong>{wegweiserNumberLine(wegweiserInfo)}</strong>
+                <small>{wegweiserStatusLine(wegweiserInfo.status)}</small>
+                {#if wegweiserInfo.title}
+                  <span>{wegweiserInfo.title}</span>
+                {/if}
+                {#if wegweiserInfo.wegweiser_typ}
+                  <small>Typ: {wegweiserInfo.wegweiser_typ}</small>
+                {/if}
+                {#if wegweiserInfo.richtung}
+                  <small>Richtung: {wegweiserInfo.richtung}</small>
+                {/if}
+                {#if wegweiserInfo.ziele.length}
+                  <small>Ziele: {wegweiserInfo.ziele.join(' / ')}</small>
+                {/if}
+                <button
+                  class="button secondary-button button-small"
+                  type="button"
+                  onclick={() =>
+                    selectedFeatureInfo?.id && onWegweiserEditRequest(wegweiserInfo.id, selectedFeatureInfo.id)}
+                >
+                  Bearbeiten
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p>Keine Wegweiser zugeordnet.</p>
+        {/if}
+      {/if}
       {#if canEdit && selectedFeatureInfo.collection === 'knoten'}
         <button
           class="button secondary-button button-small"
@@ -890,6 +1001,13 @@
         </button>
       {/if}
       {#if canEdit && selectedFeatureInfo.collection === 'pfosten'}
+        <button
+          class="button secondary-button button-small"
+          type="button"
+          onclick={() => selectedFeatureInfo?.id && onWegweiserAddRequest(selectedFeatureInfo.id)}
+        >
+          Wegweiser hinzufuegen
+        </button>
         <button
           class="button secondary-button button-small"
           type="button"

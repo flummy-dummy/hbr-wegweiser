@@ -1,10 +1,37 @@
 import { isWegweiserData, parseDistance } from '$lib/wegweiser';
-import type { WegweiserData } from '$lib/wegweiser';
+import type { WegweiserData, WegweiserStatus } from '$lib/wegweiser';
 
 export type SaveDraftPayload = {
   titel?: unknown;
   wegweiser?: unknown;
+  wegweiser_nr?: unknown;
+  offizielle_wegweiser_nr?: unknown;
+  kataster_wegweiser_nr?: unknown;
+  pfosten?: unknown;
+  status?: unknown;
 };
+
+export type DraftMeta = {
+  wegweiser_nr?: string;
+  offizielle_wegweiser_nr?: string;
+  kataster_wegweiser_nr?: string;
+  pfosten?: string;
+  status?: WegweiserStatus;
+};
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function optionalStatus(value: unknown): WegweiserStatus | undefined {
+  return value === 'entwurf' ||
+    value === 'bestellt' ||
+    value === 'produziert' ||
+    value === 'montiert' ||
+    value === 'entfernt'
+    ? value
+    : undefined;
+}
 
 export function buildDraftTitle(title: string, wegweiser: WegweiserData): string {
   const normalizedTitle = title.trim();
@@ -17,7 +44,7 @@ export function buildDraftTitle(title: string, wegweiser: WegweiserData): string
   return fallbackParts.length ? fallbackParts.join(' / ') : 'Neuer Wegweiser-Entwurf';
 }
 
-export function parseDraftPayload(payload: SaveDraftPayload): { titel: string; wegweiser: WegweiserData } | null {
+export function parseDraftPayload(payload: SaveDraftPayload): { titel: string; wegweiser: WegweiserData; meta: DraftMeta } | null {
   if (!isWegweiserData(payload.wegweiser)) {
     return null;
   }
@@ -26,13 +53,25 @@ export function parseDraftPayload(payload: SaveDraftPayload): { titel: string; w
 
   return {
     titel: buildDraftTitle(typeof payload.titel === 'string' ? payload.titel : '', wegweiser),
-    wegweiser
+    wegweiser,
+    meta: {
+      wegweiser_nr: optionalString(payload.wegweiser_nr),
+      offizielle_wegweiser_nr: optionalString(payload.offizielle_wegweiser_nr),
+      kataster_wegweiser_nr: optionalString(payload.kataster_wegweiser_nr),
+      pfosten: optionalString(payload.pfosten),
+      status: optionalStatus(payload.status)
+    }
   };
 }
 
-export function createDraftRecordData(titel: string, wegweiser: WegweiserData) {
+export function createDraftRecordData(titel: string, wegweiser: WegweiserData, meta: DraftMeta = {}) {
   return {
     titel,
+    wegweiser_nr: meta.wegweiser_nr ?? '',
+    offizielle_wegweiser_nr: meta.offizielle_wegweiser_nr ?? '',
+    kataster_wegweiser_nr: meta.kataster_wegweiser_nr ?? '',
+    pfosten: meta.pfosten ?? '',
+    status: meta.status ?? '',
     wegweiser_typ: 'arrow',
     richtung: wegweiser.direction,
     ziel_oben_text: wegweiser.farDestination.trim(),

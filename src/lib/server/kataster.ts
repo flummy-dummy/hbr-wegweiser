@@ -1,5 +1,10 @@
 import { createPocketBaseClient } from '$lib/server/pocketbase';
-import type { GeoJsonGeometry, KatasterCollectionType, KatasterMapRecord } from '$lib/kataster';
+import type {
+  GeoJsonGeometry,
+  KatasterCollectionType,
+  KatasterMapRecord,
+  KatasterWegweiserInfo
+} from '$lib/kataster';
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 
@@ -81,6 +86,52 @@ function relationIdField(record: RecordModel, field: string): string {
   }
 
   return '';
+}
+
+function formatDistance(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `${value.toLocaleString('de-DE')} km`;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    return `${value.trim()} km`;
+  }
+
+  return '';
+}
+
+function targetText(record: RecordModel, textField: string, distanceField: string): string {
+  const text = stringField(record, [textField]);
+  const distance = formatDistance(record[distanceField]);
+
+  if (!text) {
+    return '';
+  }
+
+  return distance ? `${text} (${distance})` : text;
+}
+
+function mapWegweiserInfo(record: RecordModel): KatasterWegweiserInfo & { pfostenId: string } {
+  const title = stringField(record, ['titel', 'wegweiser_nr'], 'Wegweiser');
+  const ziele = [
+    targetText(record, 'ziel_oben_text', 'ziel_oben_entfernung') ||
+      targetText(record, 'fernziel_text', 'fernziel_entfernung'),
+    targetText(record, 'ziel_unten_text', 'ziel_unten_entfernung') ||
+      targetText(record, 'nahziel_text', 'nahziel_entfernung')
+  ].filter(Boolean);
+
+  return {
+    id: String(record.id ?? ''),
+    pfostenId: relationIdField(record, 'pfosten'),
+    title,
+    wegweiser_nr: stringField(record, ['wegweiser_nr']) || undefined,
+    offizielle_wegweiser_nr: stringField(record, ['offizielle_wegweiser_nr']) || undefined,
+    kataster_wegweiser_nr: stringField(record, ['kataster_wegweiser_nr']) || undefined,
+    status: stringField(record, ['status']) || undefined,
+    wegweiser_typ: stringField(record, ['wegweiser_typ']) || undefined,
+    richtung: stringField(record, ['richtung']) || undefined,
+    ziele
+  };
 }
 
 function mapKatasterRecord(
@@ -182,6 +233,7 @@ function mapKatasterRecord(
 export async function loadKatasterMapData(pb: PocketBase | null = createPocketBaseClient()): Promise<{
   knoten: KatasterMapRecord[];
   pfosten: KatasterMapRecord[];
+  wegweiser: KatasterWegweiserInfo[];
   kanten: KatasterMapRecord[];
   themenrouten: KatasterMapRecord[];
   knotenpunktverbindungen: KatasterMapRecord[];
@@ -191,6 +243,7 @@ export async function loadKatasterMapData(pb: PocketBase | null = createPocketBa
     return {
       knoten: [],
       pfosten: [],
+      wegweiser: [],
       kanten: [],
       themenrouten: [],
       knotenpunktverbindungen: [],
@@ -200,9 +253,10 @@ export async function loadKatasterMapData(pb: PocketBase | null = createPocketBa
   }
 
   try {
-    const [knoten, pfosten, kanten, themenrouten, themenrouteKanten, verbindungen, verbindungKanten] = await Promise.all([
+    const [knoten, pfosten, wegweiserEntwuerfe, kanten, themenrouten, themenrouteKanten, verbindungen, verbindungKanten] = await Promise.all([
       pb.collection('knoten').getFullList<RecordModel>({ sort: 'knoten_nr,bezeichnung' }),
       pb.collection('pfosten').getFullList<RecordModel>({ sort: 'pfosten_index,pfosten_nr' }),
+      pb.collection('wegweiser_entwuerfe').getFullList<RecordModel>({ sort: 'wegweiser_nr,titel' }),
       pb.collection('kanten').getFullList<RecordModel>({ sort: 'kanten_nr' }),
       pb.collection('themenrouten').getFullList<RecordModel>({ sort: 'sortierung,name' }),
       pb.collection('themenroute_kanten').getFullList<RecordModel>({ sort: 'sortierung' }),
@@ -293,11 +347,31 @@ export async function loadKatasterMapData(pb: PocketBase | null = createPocketBa
 
     const mappedKnoten = knoten.map((record) => mapKatasterRecord('knoten', record));
     const knotenById = new Map(mappedKnoten.map((record) => [record.id, record]));
-    const mappedPfosten = pfosten.map((record) => mapKatasterRecord('pfosten', record, { knotenById }));
+    const wegweiserByPfostenId = new Map<string, KatasterWegweiserInfo[]>();
+    const mappedWegweiser = wegweiserEntwuerfe.map((record) => mapWegweiserInfo(record));
+
+    for (const wegweiserInfo of mappedWegweiser) {
+      if (!wegweiserInfo.pfostenId) {
+        continue;
+      }
+
+      const entries = wegweiserByPfostenId.get(wegweiserInfo.pfostenId) ?? [];
+      entries.push(wegweiserInfo);
+      wegweiserByPfostenId.set(wegweiserInfo.pfostenId, entries);
+    }
+
+    const mappedPfosten = pfosten.map((record) => {
+      const mapped = mapKatasterRecord('pfosten', record, { knotenById });
+      return {
+        ...mapped,
+        relatedWegweiser: wegweiserByPfostenId.get(mapped.id) ?? []
+      };
+    });
 
     return {
       knoten: mappedKnoten,
       pfosten: mappedPfosten,
+      wegweiser: mappedWegweiser,
       kanten: [...kantenById.values()],
       themenrouten: themenroutenFeatures,
       knotenpunktverbindungen: knotenpunktverbindungenFeatures,
@@ -309,6 +383,7 @@ export async function loadKatasterMapData(pb: PocketBase | null = createPocketBa
     return {
       knoten: [],
       pfosten: [],
+      wegweiser: [],
       kanten: [],
       themenrouten: [],
       knotenpunktverbindungen: [],

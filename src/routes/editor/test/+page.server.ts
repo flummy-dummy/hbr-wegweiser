@@ -52,12 +52,31 @@ function mapRouteOption(pb: PocketBase, record: RecordModel) {
   };
 }
 
+function mapPfostenOption(record: RecordModel) {
+  const pfostenKennung = stringField(record, ['pfosten_kennung']);
+  const pfostenNr = stringField(record, ['pfosten_nr']);
+  const typ = stringField(record, ['typ', 'pfosten_typ']);
+  const labelParts = [pfostenKennung || pfostenNr || String(record.id ?? ''), typ].filter(Boolean);
+
+  return {
+    value: String(record.id ?? ''),
+    label: labelParts.join(' - ')
+  };
+}
+
 function mapDraft(record: RecordModel): WegweiserDraftListItem {
   return {
     id: String(record.id ?? ''),
     titel: stringField(record, ['titel'], 'Ohne Titel'),
     updated: stringField(record, ['updated']),
-    jsonKonfiguration: record.json_konfiguration ?? null
+    jsonKonfiguration: record.json_konfiguration ?? null,
+    wegweiser_nr: stringField(record, ['wegweiser_nr']) || undefined,
+    offizielle_wegweiser_nr: stringField(record, ['offizielle_wegweiser_nr']) || undefined,
+    kataster_wegweiser_nr: stringField(record, ['kataster_wegweiser_nr']) || undefined,
+    pfosten: stringField(record, ['pfosten']) || undefined,
+    status: stringField(record, ['status']) as WegweiserDraftListItem['status'] | undefined,
+    wegweiser_typ: stringField(record, ['wegweiser_typ']) || undefined,
+    richtung: stringField(record, ['richtung']) || undefined
   };
 }
 
@@ -187,7 +206,15 @@ async function loadWegweiserFormats(
   return { formats, errors };
 }
 
-export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeof globalThis.fetch }) {
+export async function load({
+  locals,
+  fetch,
+  url
+}: {
+  locals: App.Locals;
+  fetch: typeof globalThis.fetch;
+  url: URL;
+}) {
   const pb = locals.pb;
   const pbAdmin = locals.pb;
 
@@ -195,10 +222,17 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
     return {
       pictogramOptions,
       routeOptions,
+      pfostenOptions: [] satisfies Array<{ value: string; label: string }>,
       drafts: [] satisfies WegweiserDraftListItem[],
       wegweiserFormats: [] satisfies WegweiserFormat[],
       wegweiserFormatErrors: {
         pocketbase: 'PocketBase ist nicht konfiguriert. Wegweiser-Formate konnten nicht geladen werden.'
+      },
+      editorContext: {
+        draftId: url.searchParams.get('draft')?.trim() ?? '',
+        pfostenId: url.searchParams.get('pfostenId')?.trim() ?? '',
+        pfostenKennung: url.searchParams.get('pfosten')?.trim() ?? '',
+        knotenId: url.searchParams.get('knotenId')?.trim() ?? ''
       },
       pocketBaseWarning:
         'PocketBase ist nicht konfiguriert. Setze PUBLIC_POCKETBASE_URL, damit Zielpiktogramme und Themenrouten geladen werden.'
@@ -206,7 +240,7 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
   }
 
   try {
-    const [zielPiktogramme, themenrouten, entwuerfe, formatResult] = await Promise.all([
+    const [zielPiktogramme, themenrouten, pfosten, entwuerfe, formatResult] = await Promise.all([
       pb.collection('ziel_piktogramme').getFullList<RecordModel>({
         filter: 'aktiv = true',
         sort: 'sortierung'
@@ -214,6 +248,9 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
       pb.collection('themenrouten').getFullList<RecordModel>({
         filter: 'aktiv = true',
         sort: 'sortierung'
+      }),
+      pb.collection('pfosten').getFullList<RecordModel>({
+        sort: 'pfosten_kennung,pfosten_nr'
       }),
       pbAdmin
         ? pbAdmin.collection('wegweiser_entwuerfe').getFullList<RecordModel>({
@@ -229,9 +266,16 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
         ...zielPiktogramme.map((record) => mapPictogramOption(pb, record))
       ],
       routeOptions: themenrouten.map((record) => mapRouteOption(pb, record)),
+      pfostenOptions: pfosten.map((record) => mapPfostenOption(record)),
       drafts: entwuerfe.map((record) => mapDraft(record)),
       wegweiserFormats: formatResult.formats,
       wegweiserFormatErrors: formatResult.errors,
+      editorContext: {
+        draftId: url.searchParams.get('draft')?.trim() ?? '',
+        pfostenId: url.searchParams.get('pfostenId')?.trim() ?? '',
+        pfostenKennung: url.searchParams.get('pfosten')?.trim() ?? '',
+        knotenId: url.searchParams.get('knotenId')?.trim() ?? ''
+      },
       pocketBaseWarning: null
     };
   } catch (error) {
@@ -240,11 +284,18 @@ export async function load({ locals, fetch }: { locals: App.Locals; fetch: typeo
     return {
       pictogramOptions,
       routeOptions,
+      pfostenOptions: [] satisfies Array<{ value: string; label: string }>,
       drafts: [] satisfies WegweiserDraftListItem[],
       wegweiserFormats: [] satisfies WegweiserFormat[],
       wegweiserFormatErrors: {
         pocketbase:
           'Wegweiser-Formate konnten nicht geladen werden. Die Vorschau wird ohne alten Hintergrund nicht angezeigt.'
+      },
+      editorContext: {
+        draftId: url.searchParams.get('draft')?.trim() ?? '',
+        pfostenId: url.searchParams.get('pfostenId')?.trim() ?? '',
+        pfostenKennung: url.searchParams.get('pfosten')?.trim() ?? '',
+        knotenId: url.searchParams.get('knotenId')?.trim() ?? ''
       },
       pocketBaseWarning:
         'PocketBase-Stammdaten konnten nicht geladen werden. Der Editor läuft mit lokalen Fallback-Daten weiter.'
