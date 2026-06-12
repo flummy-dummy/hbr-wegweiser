@@ -1,6 +1,14 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
-  import type { KatasterFeatureInfo, KatasterMapRecord } from '$lib/kataster';
+  import type { KatasterFeatureInfo, KatasterMapRecord, KatasterWegweiserInfo } from '$lib/kataster';
+  import { gradZuHimmelsrichtung } from '$lib/utils/himmelsrichtung';
+  import {
+    wegweiserAutomaticSideOffsetStepPx,
+    wegweiserBodyHeightPx,
+    wegweiserBodyWidthPx,
+    wegweiserGapPx,
+    wegweiserMinimumDistancePx
+  } from '$lib/kataster-map';
   import Feature from 'ol/Feature';
   import type Collection from 'ol/Collection';
   import type Geometry from 'ol/geom/Geometry';
@@ -11,6 +19,7 @@
   import { fromLonLat, toLonLat } from 'ol/proj';
   import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style';
   import 'ol/ol.css';
+  import { normalizeHimmelsrichtungGrad } from '$lib/utils/himmelsrichtung';
 
   type DraftPoint = {
     lon: number;
@@ -39,6 +48,7 @@
     kanten = [],
     themenrouten = [],
     knotenpunktverbindungen = [],
+    wegweiser = [],
     focusPfostenId = '',
     draftMode = 'none',
     draftPoint = null,
@@ -51,8 +61,11 @@
     onEdgeFeatureSelect = (_kanteId: string) => {},
     onPfostenCreateRequest = (_knotenId: string) => {},
     onPfostenEditRequest = (_pfostenId: string) => {},
+    onWegweiserOrientationChangeRequest = (_wegweiserId: string, _grad: number) => {},
+    onWegweiserPlacementChangeRequest = (_wegweiserId: string, _darstellungsAbstand: number, _seitlicherVersatz: number) => {},
     onWegweiserAddRequest = (_pfostenId: string) => {},
     onWegweiserEditRequest = (_wegweiserId: string, _pfostenId: string) => {},
+    onWegweiserUnlinkRequest = (_wegweiserId: string, _pfostenId: string) => {},
     onEdgeVertexSelect = (_index: number | null) => {},
     onEdgeGeometryChange = (_points: DraftPoint[]) => {},
     onEdgeEditSaveRequest = () => {}
@@ -62,6 +75,7 @@
     kanten: KatasterMapRecord[];
     themenrouten: KatasterMapRecord[];
     knotenpunktverbindungen: KatasterMapRecord[];
+    wegweiser: KatasterWegweiserInfo[];
     focusPfostenId?: string;
     draftMode?: DraftMode;
     draftPoint?: DraftPoint | null;
@@ -74,8 +88,11 @@
     onEdgeFeatureSelect?: (kanteId: string) => void;
     onPfostenCreateRequest?: (knotenId: string) => void;
     onPfostenEditRequest?: (pfostenId: string) => void;
+    onWegweiserOrientationChangeRequest?: (wegweiserId: string, grad: number) => void;
+    onWegweiserPlacementChangeRequest?: (wegweiserId: string, darstellungsAbstand: number, seitlicherVersatz: number) => void;
     onWegweiserAddRequest?: (pfostenId: string) => void;
     onWegweiserEditRequest?: (wegweiserId: string, pfostenId: string) => void;
+    onWegweiserUnlinkRequest?: (wegweiserId: string, pfostenId: string) => void;
     onEdgeVertexSelect?: (index: number | null) => void;
     onEdgeGeometryChange?: (points: DraftPoint[]) => void;
     onEdgeEditSaveRequest?: () => void;
@@ -88,6 +105,7 @@
   let katasterMapModule: KatasterMapModule | null = null;
   let knotenSource: any = null;
   let pfostenSource: any = null;
+  let wegweiserSource: any = null;
   let kantenSource: any = null;
   let themenrouteSource: any = null;
   let verbindungSource: any = null;
@@ -101,6 +119,18 @@
   let draftFeatureCollection: Collection<Feature<Geometry>> | null = null;
   let isSpacePressed = $state(false);
   let isPanDragging = $state(false);
+  let rotatingWegweiserId = $state('');
+  let rotatingWegweiserPfostenCenter: [number, number] | null = null;
+  let rotatingWegweiserGrad = $state(0);
+  let rotatingWegweiserOriginalGrad = $state(0);
+  let movingWegweiserId = $state('');
+  let movingWegweiserAnchorPixel: [number, number] | null = null;
+  let movingWegweiserBodyOffset: [number, number] | null = null;
+  let movingWegweiserPointerDownPixel: [number, number] | null = null;
+  let movingWegweiserPointerCandidateId = $state('');
+  let movingWegweiserOriginalDistance = $state(0);
+  let movingWegweiserOriginalSideOffset = $state(0);
+  let movingWegweiserOriginalManuellPositioniert = $state(false);
 
   function shouldUseRightButtonPan(event: MouseEvent | PointerEvent): boolean {
     return event.button === 2 || event.buttons === 2;
@@ -127,7 +157,12 @@
       return;
     }
 
-    mapElement.style.cursor = isPanDragging ? 'grabbing' : isSpacePressed ? 'grab' : '';
+    mapElement.style.cursor =
+      isPanDragging || Boolean(movingWegweiserId) || Boolean(movingWegweiserPointerCandidateId) || Boolean(rotatingWegweiserId)
+        ? 'grabbing'
+        : isSpacePressed
+          ? 'grab'
+          : '';
   }
 
   const draftPointStyle = new Style({
@@ -243,6 +278,111 @@
       }));
   }
 
+  function getWegweiserPfostenPosition(wegweiserInfo: KatasterWegweiserInfo): [number, number] | null {
+    const selectedPfosten = pfosten.find((entry) => entry.id === wegweiserInfo.pfostenId);
+
+    if (!selectedPfosten || selectedPfosten.lon === null || selectedPfosten.lat === null) {
+      return null;
+    }
+
+    return fromLonLat([selectedPfosten.lon, selectedPfosten.lat]) as [number, number];
+  }
+
+  function getWegweiserById(wegweiserId: string): KatasterWegweiserInfo | null {
+    return wegweiser.find((entry) => entry.id === wegweiserId) ?? null;
+  }
+
+  function getWegweiserFeatureById(wegweiserId: string): Feature<Geometry> | null {
+    return (wegweiserSource?.getFeatureById?.(wegweiserId) as Feature<Geometry> | undefined) ?? null;
+  }
+
+  function createWegweiserFeatures(): Feature<Geometry>[] {
+    const groupedByPfostenUndRichtung = new globalThis.Map<string, KatasterWegweiserInfo[]>();
+
+    [...wegweiser].forEach((entry) => {
+      if (!entry.pfostenId) {
+        return;
+      }
+
+      const richtungKey = `${entry.pfostenId}:${normalizeHimmelsrichtungGrad(entry.himmelsrichtungGrad ?? 0)}`;
+      const richtungEntries = groupedByPfostenUndRichtung.get(richtungKey) ?? [];
+      richtungEntries.push(entry);
+      groupedByPfostenUndRichtung.set(richtungKey, richtungEntries);
+    });
+
+    return [...wegweiser]
+      .sort((left, right) => {
+        const pfostenCompare = (left.pfostenId ?? '').localeCompare(right.pfostenId ?? '');
+
+        if (pfostenCompare !== 0) {
+          return pfostenCompare;
+        }
+
+        return (left.anzeigeReihenfolge ?? 0) - (right.anzeigeReihenfolge ?? 0);
+      })
+      .flatMap((entry) => {
+        const center = getWegweiserPfostenPosition(entry);
+
+        if (!center) {
+          return [];
+        }
+
+        const richtungKey = `${entry.pfostenId ?? ''}:${normalizeHimmelsrichtungGrad(entry.himmelsrichtungGrad ?? 0)}`;
+        const siblings = groupedByPfostenUndRichtung.get(richtungKey) ?? [];
+        const manualPlacement = entry.darstellungsAbstand !== undefined || entry.seitlicherVersatz !== undefined;
+        const autoSiblings = siblings.filter(
+          (candidate) => candidate.darstellungsAbstand === undefined && candidate.seitlicherVersatz === undefined
+        );
+        const sortedAutoSiblings = [...autoSiblings].sort(
+          (left, right) => (left.anzeigeReihenfolge ?? 0) - (right.anzeigeReihenfolge ?? 0)
+        );
+        const siblingIndex = sortedAutoSiblings.findIndex((candidate) => candidate.id === entry.id);
+        const automaticSideOffsetPx =
+          !manualPlacement && siblingIndex >= 0
+            ? (siblingIndex - (sortedAutoSiblings.length - 1) / 2) * wegweiserAutomaticSideOffsetStepPx
+            : 0;
+        const effectiveDistancePx = entry.darstellungsAbstand ?? wegweiserMinimumDistancePx;
+        const effectiveSideOffsetPx =
+          entry.seitlicherVersatz !== undefined ? entry.seitlicherVersatz : automaticSideOffsetPx;
+
+        const feature = new Feature({
+          geometry: new Point(center)
+        }) as Feature<Geometry>;
+        feature.setId(entry.id);
+        feature.setProperties({
+          id: entry.id,
+          collection: 'wegweiser',
+          title: entry.title,
+          subtitle: entry.wegweiser_nr ?? entry.kataster_wegweiser_nr ?? '',
+          status: entry.status ?? '',
+          pfostenId: entry.pfostenId,
+          himmelsrichtungGrad: entry.himmelsrichtungGrad ?? 0,
+          himmelsrichtungText: entry.himmelsrichtungText ?? 'Norden',
+          darstellungsAbstand: effectiveDistancePx,
+          seitlicherVersatz: effectiveSideOffsetPx,
+          anzeigeReihenfolge: entry.anzeigeReihenfolge ?? 0,
+          automatischeVerteilungSeitlich: automaticSideOffsetPx,
+          manuellPositioniert: manualPlacement,
+          wegweiserRichtungKey: richtungKey
+        });
+        return [feature];
+      });
+  }
+
+  function syncWegweiserFeatureState(wegweiserId: string, grad: number) {
+    const feature = getWegweiserFeatureById(wegweiserId);
+
+    if (!feature) {
+      return;
+    }
+
+    feature.set('himmelsrichtungGrad', grad);
+    feature.set('himmelsrichtungText', gradZuHimmelsrichtung(grad));
+    feature.changed();
+    wegweiserSource?.changed();
+    mapInstance?.render();
+  }
+
   function wegweiserNumberLine(wegweiserInfo: NonNullable<KatasterFeatureInfo['relatedWegweiser']>[number]): string {
     return [
       wegweiserInfo.wegweiser_nr || 'keine interne Nr.',
@@ -253,6 +393,11 @@
 
   function wegweiserStatusLine(status: string | undefined): string {
     return `Status: ${status || 'kein Status'}`;
+  }
+
+  function wegweiserDirectionLine(wegweiserInfo: KatasterWegweiserInfo): string {
+    const grad = Math.trunc(wegweiserInfo.himmelsrichtungGrad ?? 0);
+    return `${wegweiserInfo.himmelsrichtungText || 'Norden'} (${grad}°)`;
   }
 
   function pfostenDetails(record: KatasterMapRecord): KatasterFeatureInfo['details'] {
@@ -279,6 +424,22 @@
       status: record.status || 'ohne Status',
       details: pfostenDetails(record),
       relatedWegweiser: record.relatedWegweiser ?? []
+    };
+  }
+
+  function selectWegweiserRecord(record: KatasterWegweiserInfo) {
+    const pfostenRecord = pfosten.find((entry) => entry.id === record.pfostenId) ?? null;
+
+    selectedFeatureInfo = {
+      id: record.id,
+      collection: 'wegweiser',
+      title: record.title,
+      subtitle: record.wegweiser_nr || record.kataster_wegweiser_nr || undefined,
+      status: record.status || 'ohne Status',
+      details: [
+        { label: 'Pfosten', value: pfostenRecord?.title ?? record.pfostenId ?? '' },
+        { label: 'Himmelsrichtung', value: wegweiserDirectionLine(record) }
+      ]
     };
   }
 
@@ -323,6 +484,8 @@
     knotenSource?.addFeatures(katasterMapModule.createFeaturesFromRecords(knoten));
     pfostenSource?.clear();
     pfostenSource?.addFeatures(katasterMapModule.createFeaturesFromRecords(pfosten));
+    wegweiserSource?.clear();
+    wegweiserSource?.addFeatures(createWegweiserFeatures());
     kantenSource?.clear();
     kantenSource?.addFeatures(katasterMapModule.createFeaturesFromRecords(kanten));
     themenrouteSource?.clear();
@@ -347,6 +510,11 @@
       const selectedPfosten = pfosten.find((entry) => entry.id === currentSelection.id);
       if (selectedPfosten) {
         selectPfostenRecord(selectedPfosten);
+      }
+    } else if (currentSelection?.collection === 'wegweiser' && currentSelection.id) {
+      const selectedWegweiser = getWegweiserById(currentSelection.id);
+      if (selectedWegweiser) {
+        selectWegweiserRecord(selectedWegweiser);
       }
     }
   }
@@ -380,6 +548,266 @@
     dragPanInteraction.setActive(true);
   }
 
+  function focusPfostenOnMap(pfostenId: string) {
+    if (!mapInstance || !pfostenId) {
+      return;
+    }
+
+    const selectedPfosten = pfosten.find((entry) => entry.id === pfostenId);
+
+    if (!selectedPfosten || selectedPfosten.lon === null || selectedPfosten.lat === null) {
+      return;
+    }
+
+    mapInstance.getView().animate({
+      center: fromLonLat([selectedPfosten.lon, selectedPfosten.lat]),
+      zoom: 18,
+      duration: 0
+    });
+  }
+
+  function getWegweiserCenterById(wegweiserId: string): [number, number] | null {
+    const current = getWegweiserById(wegweiserId);
+    return current ? getWegweiserPfostenPosition(current) : null;
+  }
+
+  function getWegweiserAnchorPixelById(wegweiserId: string): [number, number] | null {
+    if (!mapInstance) {
+      return null;
+    }
+
+    const center = getWegweiserCenterById(wegweiserId);
+
+    if (!center) {
+      return null;
+    }
+
+    const anchor = mapInstance.getPixelFromCoordinate(center);
+    return Array.isArray(anchor) ? ([anchor[0], anchor[1]] as [number, number]) : null;
+  }
+
+  function getWegweiserVectors(grad: number): { dirX: number; dirY: number; perpX: number; perpY: number } {
+    const rotation = (grad * Math.PI) / 180;
+    return {
+      dirX: Math.sin(rotation),
+      dirY: -Math.cos(rotation),
+      perpX: Math.cos(rotation),
+      perpY: Math.sin(rotation)
+    };
+  }
+
+  function getWegweiserEffectivePlacement(wegweiserId: string): {
+    distancePx: number;
+    sideOffsetPx: number;
+    grad: number;
+  } | null {
+    const feature = getWegweiserFeatureById(wegweiserId);
+
+    if (!feature) {
+      return null;
+    }
+
+    const storedDistance = typeof feature.get('darstellungsAbstand') === 'number' ? feature.get('darstellungsAbstand') : null;
+    const storedSideOffset = typeof feature.get('seitlicherVersatz') === 'number' ? feature.get('seitlicherVersatz') : null;
+    const grad = typeof feature.get('himmelsrichtungGrad') === 'number' ? feature.get('himmelsrichtungGrad') : 0;
+
+    return {
+      distancePx: storedDistance !== null ? Math.max(Math.trunc(storedDistance), wegweiserMinimumDistancePx) : wegweiserMinimumDistancePx,
+      sideOffsetPx: storedSideOffset !== null ? Math.trunc(storedSideOffset) : 0,
+      grad
+    };
+  }
+
+  function getWegweiserBodyCenterPixel(
+    anchorPixel: [number, number],
+    placement: { distancePx: number; sideOffsetPx: number; grad: number }
+  ): [number, number] {
+    const { dirX, dirY, perpX, perpY } = getWegweiserVectors(placement.grad);
+    const bodyHalfWidthPx = wegweiserBodyWidthPx / 2;
+    const centerOffsetPx = placement.distancePx + bodyHalfWidthPx + wegweiserGapPx;
+
+    return [
+      anchorPixel[0] + centerOffsetPx * dirX + placement.sideOffsetPx * perpX,
+      anchorPixel[1] + centerOffsetPx * dirY + placement.sideOffsetPx * perpY
+    ];
+  }
+
+  function getWegweiserPlacementFromBodyCenter(
+    anchorPixel: [number, number],
+    bodyCenterPixel: [number, number],
+    grad: number
+  ): { distancePx: number; sideOffsetPx: number } {
+    const { dirX, dirY, perpX, perpY } = getWegweiserVectors(grad);
+    const vectorX = bodyCenterPixel[0] - anchorPixel[0];
+    const vectorY = bodyCenterPixel[1] - anchorPixel[1];
+    const projectedDistance =
+      vectorX * dirX + vectorY * dirY - wegweiserBodyWidthPx / 2 - wegweiserGapPx;
+    const projectedSideOffset = vectorX * perpX + vectorY * perpY;
+
+    return {
+      distancePx: Math.max(Math.trunc(projectedDistance), wegweiserMinimumDistancePx),
+      sideOffsetPx: Math.trunc(projectedSideOffset)
+    };
+  }
+
+  function syncWegweiserPlacementFeatureState(
+    wegweiserId: string,
+    distancePx: number,
+    sideOffsetPx: number,
+    manuellPositioniert = true
+  ) {
+    const feature = getWegweiserFeatureById(wegweiserId);
+
+    if (!feature) {
+      return;
+    }
+
+    feature.set('darstellungsAbstand', distancePx);
+    feature.set('seitlicherVersatz', sideOffsetPx);
+    feature.set('manuellPositioniert', manuellPositioniert);
+    feature.changed();
+    wegweiserSource?.changed();
+    mapInstance?.render();
+  }
+
+  function updateRotatingWegweiser(point: [number, number]) {
+    if (!rotatingWegweiserId || !rotatingWegweiserPfostenCenter) {
+      return;
+    }
+
+    const [centerX, centerY] = rotatingWegweiserPfostenCenter;
+    const [pointerX, pointerY] = point;
+    const dx = pointerX - centerX;
+    const dy = pointerY - centerY;
+    const grad = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+    rotatingWegweiserGrad = grad;
+    const wegweiserRecord = getWegweiserById(rotatingWegweiserId);
+
+    if (wegweiserRecord) {
+      selectWegweiserRecord({
+        ...wegweiserRecord,
+        himmelsrichtungGrad: grad,
+        himmelsrichtungText: gradZuHimmelsrichtung(grad)
+      });
+      syncWegweiserFeatureState(rotatingWegweiserId, grad);
+    }
+  }
+
+  function beginWegweiserMove(wegweiserId: string, pointerPixel: [number, number]) {
+    const placement = getWegweiserEffectivePlacement(wegweiserId);
+    const anchorPixel = getWegweiserAnchorPixelById(wegweiserId);
+
+    if (!placement || !anchorPixel) {
+      return;
+    }
+
+    const bodyCenterPixel = getWegweiserBodyCenterPixel(anchorPixel, placement);
+    movingWegweiserId = wegweiserId;
+    movingWegweiserAnchorPixel = anchorPixel;
+    movingWegweiserBodyOffset = [pointerPixel[0] - bodyCenterPixel[0], pointerPixel[1] - bodyCenterPixel[1]];
+    movingWegweiserPointerDownPixel = pointerPixel;
+    movingWegweiserOriginalDistance = placement.distancePx;
+    movingWegweiserOriginalSideOffset = placement.sideOffsetPx;
+    movingWegweiserOriginalManuellPositioniert = Boolean(getWegweiserFeatureById(wegweiserId)?.get('manuellPositioniert'));
+
+    console.info('[KatasterMap] wegweiser move start', {
+      id: wegweiserId,
+      distance: placement.distancePx,
+      sideOffset: placement.sideOffsetPx
+    });
+  }
+
+  function updateMovingWegweiser(pointerPixel: [number, number]) {
+    if (!movingWegweiserId || !movingWegweiserAnchorPixel || !movingWegweiserBodyOffset) {
+      return;
+    }
+
+    const wegweiserRecord = getWegweiserById(movingWegweiserId);
+
+    if (!wegweiserRecord) {
+      return;
+    }
+
+    const bodyCenterPixel: [number, number] = [
+      pointerPixel[0] - movingWegweiserBodyOffset[0],
+      pointerPixel[1] - movingWegweiserBodyOffset[1]
+    ];
+    const placement = getWegweiserPlacementFromBodyCenter(
+      movingWegweiserAnchorPixel,
+      bodyCenterPixel,
+      wegweiserRecord.himmelsrichtungGrad ?? 0
+    );
+
+    console.info('[KatasterMap] wegweiser move preview', {
+      id: movingWegweiserId,
+      distance: placement.distancePx,
+      sideOffset: placement.sideOffsetPx
+    });
+
+    syncWegweiserPlacementFeatureState(movingWegweiserId, placement.distancePx, placement.sideOffsetPx);
+  }
+
+  function stopWegweiserMove(commit = true) {
+    if (!movingWegweiserId) {
+      return;
+    }
+
+    const wegweiserId = movingWegweiserId;
+    const originalDistance = movingWegweiserOriginalDistance;
+    const originalSideOffset = movingWegweiserOriginalSideOffset;
+    const originalManuellPositioniert = movingWegweiserOriginalManuellPositioniert;
+    movingWegweiserId = '';
+    movingWegweiserAnchorPixel = null;
+    movingWegweiserBodyOffset = null;
+    movingWegweiserPointerDownPixel = null;
+
+    if (!commit) {
+      syncWegweiserPlacementFeatureState(wegweiserId, originalDistance, originalSideOffset, originalManuellPositioniert);
+      return;
+    }
+
+    const feature = getWegweiserFeatureById(wegweiserId);
+    const distancePx = typeof feature?.get('darstellungsAbstand') === 'number' ? feature.get('darstellungsAbstand') : originalDistance;
+    const sideOffsetPx = typeof feature?.get('seitlicherVersatz') === 'number' ? feature.get('seitlicherVersatz') : originalSideOffset;
+
+    console.info('[KatasterMap] wegweiser move save', {
+      id: wegweiserId,
+      distance: distancePx,
+      sideOffset: sideOffsetPx
+    });
+
+    onWegweiserPlacementChangeRequest?.(wegweiserId, Math.trunc(distancePx), Math.trunc(sideOffsetPx));
+  }
+
+  function stopWegweiserRotation(commit = true) {
+    if (!rotatingWegweiserId) {
+      return;
+    }
+
+    const wegweiserId = rotatingWegweiserId;
+    const grad = commit ? rotatingWegweiserGrad : rotatingWegweiserOriginalGrad;
+    rotatingWegweiserId = '';
+    rotatingWegweiserPfostenCenter = null;
+
+    if (!commit) {
+      syncWegweiserFeatureState(wegweiserId, grad);
+      const originalRecord = getWegweiserById(wegweiserId);
+
+      if (originalRecord) {
+        selectWegweiserRecord(originalRecord);
+      }
+
+      return;
+    }
+
+    onWegweiserOrientationChangeRequest(wegweiserId, grad);
+  }
+
+  function cancelWegweiserPointerCandidate() {
+    movingWegweiserPointerCandidateId = '';
+    movingWegweiserPointerDownPixel = null;
+  }
+
   $effect(() => {
     draftMode;
     draftPoint;
@@ -389,6 +817,7 @@
     kanten;
     themenrouten;
     knotenpunktverbindungen;
+    wegweiser;
     refreshSources();
     syncTranslateInteraction();
     syncEdgeModifyInteraction();
@@ -405,6 +834,33 @@
 
     if (selectedPfosten) {
       selectPfostenRecord(selectedPfosten);
+      focusPfostenOnMap(selectedPfosten.id);
+    }
+  });
+
+  $effect(() => {
+    if (draftMode !== 'none' || !focusPfostenId) {
+      return;
+    }
+
+    focusPfostenOnMap(focusPfostenId);
+  });
+
+  $effect(() => {
+    selectedFeatureInfo;
+    wegweiserSource?.changed();
+    mapInstance?.render();
+  });
+
+  $effect(() => {
+    if (!rotatingWegweiserId) {
+      return;
+    }
+
+    const center = getWegweiserCenterById(rotatingWegweiserId);
+
+    if (center) {
+      rotatingWegweiserPfostenCenter = center;
     }
   });
 
@@ -473,6 +929,7 @@
 
       const knotenFeatures = katasterMap.createFeaturesFromRecords(knoten);
       const pfostenFeatures = katasterMap.createFeaturesFromRecords(pfosten);
+      const wegweiserFeatures = createWegweiserFeatures();
       const kantenFeatures = katasterMap.createFeaturesFromRecords(kanten);
       const themenrouteFeatures = katasterMap.createFeaturesFromRecords(themenrouten);
       const verbindungFeatures = katasterMap.createFeaturesFromRecords(knotenpunktverbindungen);
@@ -484,6 +941,7 @@
       verbindungSource = new VectorSource({ features: verbindungFeatures });
       kantenSource = new VectorSource({ features: kantenFeatures });
       pfostenSource = new VectorSource({ features: pfostenFeatures });
+      wegweiserSource = new VectorSource({ features: wegweiserFeatures });
       knotenSource = new VectorSource({ features: knotenFeatures });
       draftSource = new VectorSource({ features: draftFeatures });
       edgeDraftSource = new VectorSource({ features: edgeDraftFeatures });
@@ -517,6 +975,17 @@
         new VectorLayer({
           source: pfostenSource,
           style: katasterMap.getKatasterStyle('pfosten')
+        })
+      );
+      map.addLayer(
+        new VectorLayer({
+          source: wegweiserSource,
+          style: (feature, resolution) =>
+            katasterMap.getWegweiserStyle(
+              feature as Feature<Geometry>,
+              selectedFeatureInfo?.collection === 'wegweiser' && selectedFeatureInfo.id === feature.get('id'),
+              resolution ?? 1
+            )
         })
       );
       map.addLayer(
@@ -601,27 +1070,92 @@
         onEdgeGeometryChange(lineCoordinates);
       });
 
-      const allFeatures = [
-        ...knotenFeatures,
-        ...pfostenFeatures,
-        ...kantenFeatures,
-        ...themenrouteFeatures,
-        ...verbindungFeatures
-      ];
+      if (focusPfostenId) {
+        const selectedPfosten = pfosten.find((entry) => entry.id === focusPfostenId);
 
-      if (allFeatures.length) {
-        const extent = katasterMap.getFeaturesExtent(allFeatures);
+        if (selectedPfosten) {
+          selectPfostenRecord(selectedPfosten);
+          focusPfostenOnMap(selectedPfosten.id);
+        }
+      } else {
+        const allFeatures = [
+          ...knotenFeatures,
+          ...pfostenFeatures,
+          ...kantenFeatures,
+          ...themenrouteFeatures,
+          ...verbindungFeatures
+        ];
 
-        if (!isEmptyExtent(extent)) {
-          map.getView().fit(extent, {
-            padding: [48, 48, 48, 48],
-            maxZoom: 17,
-            duration: 0
-          });
+        if (allFeatures.length) {
+          const extent = katasterMap.getFeaturesExtent(allFeatures);
+
+          if (!isEmptyExtent(extent)) {
+            map.getView().fit(extent, {
+              padding: [48, 48, 48, 48],
+              maxZoom: 17,
+              duration: 0
+            });
+          }
         }
       }
 
       map.on('pointermove', (event) => {
+        const originalEvent = event.originalEvent;
+        const isRotationGesture =
+          isMouseLikeEvent(originalEvent) &&
+          originalEvent.ctrlKey &&
+          originalEvent.buttons === 1;
+
+        if (movingWegweiserId) {
+          updateMovingWegweiser(event.pixel as [number, number]);
+          return;
+        }
+
+        if (
+          movingWegweiserPointerCandidateId &&
+          movingWegweiserPointerDownPixel &&
+          isMouseLikeEvent(originalEvent) &&
+          originalEvent.buttons === 1 &&
+          !isRotationGesture
+        ) {
+          const deltaX = event.pixel[0] - movingWegweiserPointerDownPixel[0];
+          const deltaY = event.pixel[1] - movingWegweiserPointerDownPixel[1];
+          const dragDistance = Math.hypot(deltaX, deltaY);
+
+          if (dragDistance >= 4) {
+            beginWegweiserMove(movingWegweiserPointerCandidateId, event.pixel as [number, number]);
+            updateMovingWegweiser(event.pixel as [number, number]);
+            return;
+          }
+        }
+
+        if (isRotationGesture && !rotatingWegweiserId) {
+          const hoveredFeature = map.forEachFeatureAtPixel(event.pixel, (candidate) => {
+            return candidate instanceof Feature ? (candidate as Feature<Geometry>) : null;
+          });
+
+          if (hoveredFeature && hoveredFeature.get('collection') === 'wegweiser') {
+            const featureId = hoveredFeature.get('id') ?? hoveredFeature.getId();
+
+            if (typeof featureId === 'string') {
+              const selectedWegweiser = getWegweiserById(featureId);
+
+              if (selectedWegweiser) {
+                rotatingWegweiserId = featureId;
+                rotatingWegweiserPfostenCenter = getWegweiserPfostenPosition(selectedWegweiser);
+                rotatingWegweiserGrad = selectedWegweiser.himmelsrichtungGrad ?? 0;
+                rotatingWegweiserOriginalGrad = rotatingWegweiserGrad;
+                selectWegweiserRecord(selectedWegweiser);
+              }
+            }
+          }
+        }
+
+        if (rotatingWegweiserId) {
+          updateRotatingWegweiser(event.coordinate as [number, number]);
+          return;
+        }
+
         if (draftMode !== 'create-edge' || !edgeDraft || edgeDraft.endPoint) {
           return;
         }
@@ -634,10 +1168,52 @@
         onEdgeHoverChange({ lon, lat });
       });
 
+      map.on('pointerdown' as never, (event: any) => {
+        const originalEvent = event.originalEvent;
+
+        if (
+          draftMode !== 'none' ||
+          rotatingWegweiserId ||
+          movingWegweiserId ||
+          !isMouseLikeEvent(originalEvent) ||
+          originalEvent.button !== 0 ||
+          originalEvent.ctrlKey ||
+          isPanPointerEvent(originalEvent)
+        ) {
+          return;
+        }
+
+        const hoveredFeature = map.forEachFeatureAtPixel(event.pixel, (candidate) => {
+          return candidate instanceof Feature ? (candidate as Feature<Geometry>) : null;
+        });
+
+        if (!hoveredFeature || hoveredFeature.get('collection') !== 'wegweiser') {
+          cancelWegweiserPointerCandidate();
+          return;
+        }
+
+        const featureId = hoveredFeature.get('id') ?? hoveredFeature.getId();
+
+        if (typeof featureId !== 'string' || !featureId) {
+          return;
+        }
+
+        const selectedWegweiser = getWegweiserById(featureId);
+
+        if (!selectedWegweiser) {
+          return;
+        }
+
+        selectWegweiserRecord(selectedWegweiser);
+        movingWegweiserPointerCandidateId = featureId;
+        movingWegweiserPointerDownPixel = [event.pixel[0], event.pixel[1]];
+        updateMapCursor();
+      });
+
       map.on('singleclick', (event) => {
         const originalEvent = event.originalEvent;
 
-        if (originalEvent instanceof MouseEvent && isPanPointerEvent(originalEvent)) {
+        if (isMouseLikeEvent(originalEvent) && isPanPointerEvent(originalEvent)) {
           return;
         }
 
@@ -723,6 +1299,19 @@
           return;
         }
 
+        if (feature.get('collection') === 'wegweiser') {
+          const featureId = feature.get('id') ?? feature.getId();
+
+          if (typeof featureId === 'string') {
+            const selectedWegweiser = getWegweiserById(featureId);
+
+            if (selectedWegweiser) {
+              selectWegweiserRecord(selectedWegweiser);
+            }
+          }
+          return;
+        }
+
         selectedFeatureInfo = getSelectedFeatureInfo(feature);
 
         if (feature.get('collection') === 'kanten') {
@@ -737,7 +1326,7 @@
       map.on('dblclick', (event) => {
         const originalEvent = event.originalEvent;
 
-        if (originalEvent instanceof MouseEvent && isPanPointerEvent(originalEvent)) {
+        if (isMouseLikeEvent(originalEvent) && isPanPointerEvent(originalEvent)) {
           return;
         }
 
@@ -783,6 +1372,13 @@
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space') {
+        if (event.code === 'Escape') {
+          cancelWegweiserPointerCandidate();
+          stopWegweiserMove(false);
+          stopWegweiserRotation(false);
+          isPanDragging = false;
+          updateMapCursor();
+        }
         return;
       }
 
@@ -812,6 +1408,16 @@
     };
 
     const handlePointerUp = () => {
+      if (movingWegweiserId) {
+        stopWegweiserMove(true);
+      }
+
+      cancelWegweiserPointerCandidate();
+
+      if (!movingWegweiserId) {
+        stopWegweiserRotation(true);
+      }
+
       isPanDragging = false;
       updateMapCursor();
     };
@@ -933,6 +1539,9 @@
           </div>
         {/each}
       </dl>
+      {#if selectedFeatureInfo.collection === 'wegweiser'}
+        <p>STRG gedrueckt halten und ziehen, um die Richtung zu aendern.</p>
+      {/if}
       {#if selectedFeatureInfo.relatedPfosten?.length}
         <h3>Zugehoerige Pfosten</h3>
         <ul class="kataster-related-list">
@@ -976,6 +1585,14 @@
                     selectedFeatureInfo?.id && onWegweiserEditRequest(wegweiserInfo.id, selectedFeatureInfo.id)}
                 >
                   Bearbeiten
+                </button>
+                <button
+                  class="button secondary-button button-small"
+                  type="button"
+                  onclick={() =>
+                    selectedFeatureInfo?.id && onWegweiserUnlinkRequest(wegweiserInfo.id, selectedFeatureInfo.id)}
+                >
+                  Zuordnung entfernen
                 </button>
               </li>
             {/each}

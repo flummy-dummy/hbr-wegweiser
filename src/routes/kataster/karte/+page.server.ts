@@ -2,6 +2,7 @@ import { ensurePermission } from '$lib/server/auth';
 import { createDraftRecordData } from '$lib/server/draft-record';
 import { loadKatasterMapData } from '$lib/server/kataster';
 import type { WegweiserData } from '$lib/wegweiser';
+import { gradZuHimmelsrichtung } from '$lib/utils/himmelsrichtung';
 import { error, fail } from '@sveltejs/kit';
 import PocketBase, { type RecordModel } from 'pocketbase';
 import type { Actions, PageServerLoad } from './$types';
@@ -28,6 +29,8 @@ const emptyWegweiserData: WegweiserData = {
   nearRoutePictograms: [],
   formatSlug: 'pfeilwegweiser_rechts',
   direction: 'right',
+  himmelsrichtungGrad: 0,
+  himmelsrichtungText: 'Norden',
   routes: []
 };
 
@@ -525,6 +528,20 @@ function relationFieldValue(record: RecordModel, field: string): string | null {
   return null;
 }
 
+function relationFieldValues(record: RecordModel, field: string): string[] {
+  const value = record[field];
+
+  if (typeof value === 'string' && value.trim()) {
+    return [value.trim()];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => (typeof entry === 'string' && entry.trim() ? [entry.trim()] : []));
+  }
+
+  return [];
+}
+
 function formValueFromRecord(record: RecordModel, fields: string[]): string {
   for (const field of fields) {
     const value = record[field];
@@ -715,6 +732,56 @@ function mapKnotenRecord(record: RecordModel) {
 }
 
 export const actions: Actions = {
+  updateWegweiserOrientation: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
+    const id = formValue(values, 'id');
+    const gradRaw = formValue(values, 'himmelsrichtung_grad');
+
+    if (!id) {
+      return fail(400, {
+        success: false,
+        action: 'updateWegweiserOrientation',
+        message: 'Die Wegweiser-ID fehlt.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    const grad = parseNumberInput(gradRaw);
+
+    if (grad === null) {
+      return fail(400, {
+        success: false,
+        action: 'updateWegweiserOrientation',
+        message: 'Die Richtung ist ungueltig.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      await pbAdmin.collection('wegweiser_entwuerfe').update(id, {
+        himmelsrichtung_grad: ((Math.trunc(grad) % 360) + 360) % 360,
+        himmelsrichtung_text: gradZuHimmelsrichtung(grad),
+        himmelsrichtung_select: gradZuHimmelsrichtung(grad)
+      });
+
+      return {
+        success: true,
+        action: 'updateWegweiserOrientation',
+        message: 'Richtung wurde aktualisiert.'
+      };
+    } catch (error) {
+      console.error('Wegweiser-Richtung konnte nicht aktualisiert werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'updateWegweiserOrientation',
+        message: describePocketBaseError(error, 'Wegweiser-Richtung konnte nicht aktualisiert werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
   assignWegweiserToPfosten: async (event) => {
     const pbAdmin = getAuthorizedPocketBase(event, 'edit');
     const values = await event.request.formData();
@@ -797,6 +864,61 @@ export const actions: Actions = {
         success: false,
         action: 'createWegweiserAtPfosten',
         message: describePocketBaseError(error, 'Wegweiser konnte nicht am Pfosten angelegt werden.'),
+        values: Object.fromEntries(values)
+      });
+    }
+  },
+
+  unlinkWegweiserFromPfosten: async (event) => {
+    const pbAdmin = getAuthorizedPocketBase(event, 'edit');
+    const values = await event.request.formData();
+    const pfostenId = formValue(values, 'pfosten');
+    const wegweiserId = formValue(values, 'wegweiser');
+
+    if (!pfostenId || !wegweiserId) {
+      return fail(400, {
+        success: false,
+        action: 'unlinkWegweiserFromPfosten',
+        message: 'Pfosten und Wegweiser sind erforderlich.',
+        values: Object.fromEntries(values)
+      });
+    }
+
+    try {
+      const wegweiserRecord = await pbAdmin.collection('wegweiser_entwuerfe').getOne<RecordModel>(wegweiserId);
+      const relatedPfostenIds = relationFieldValues(wegweiserRecord, 'pfosten');
+
+      if (!relatedPfostenIds.includes(pfostenId)) {
+        return fail(409, {
+          success: false,
+          action: 'unlinkWegweiserFromPfosten',
+          message: 'Die Zuordnung zwischen Wegweiser und Pfosten besteht nicht mehr.',
+          values: Object.fromEntries(values)
+        });
+      }
+
+      const remainingPfostenIds = relatedPfostenIds.filter((id) => id !== pfostenId);
+      await pbAdmin.collection('wegweiser_entwuerfe').update(wegweiserId, {
+        pfosten: remainingPfostenIds.length <= 1 ? (remainingPfostenIds[0] ?? '') : remainingPfostenIds
+      });
+
+      return {
+        success: true,
+        action: 'unlinkWegweiserFromPfosten',
+        message: 'Zuordnung zum Pfosten wurde entfernt.',
+        wegweiserId,
+        pfostenId
+      };
+    } catch (error) {
+      console.error('Wegweiser-Zuordnung zum Pfosten konnte nicht entfernt werden.', error);
+
+      return fail(500, {
+        success: false,
+        action: 'unlinkWegweiserFromPfosten',
+        message: describePocketBaseError(
+          error,
+          'Die Zuordnung zwischen Wegweiser und Pfosten konnte nicht entfernt werden.'
+        ),
         values: Object.fromEntries(values)
       });
     }

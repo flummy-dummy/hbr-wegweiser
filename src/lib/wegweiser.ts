@@ -81,6 +81,8 @@ export type WegweiserData = {
   nearRoutePictograms: DestinationPictogram[];
   formatSlug: string;
   direction: Direction;
+  himmelsrichtungGrad: number;
+  himmelsrichtungText: string;
   routes: RouteInsert[];
 };
 
@@ -115,6 +117,8 @@ export type WegweiserDraftListItem = {
   status?: WegweiserStatus;
   wegweiser_typ?: string;
   richtung?: string;
+  himmelsrichtung_grad?: number;
+  himmelsrichtung_text?: string;
 };
 
 export const wegweiserLayout = {
@@ -192,6 +196,8 @@ export const defaultWegweiserData: WegweiserData = {
   nearRoutePictograms: [],
   formatSlug: 'pfeilwegweiser_rechts',
   direction: 'right',
+  himmelsrichtungGrad: 0,
+  himmelsrichtungText: 'Norden',
   routes: [
     { type: 'themenroute', route: 'castle-route' },
     { type: 'themenroute', route: 'radbahn' }
@@ -282,6 +288,8 @@ export function isWegweiserData(value: unknown): value is WegweiserData {
     typeof candidate.nearDistance === 'string' &&
     (typeof candidate.formatSlug === 'string' || candidate.formatSlug === undefined) &&
     (candidate.direction === 'left' || candidate.direction === 'right') &&
+    typeof candidate.himmelsrichtungGrad === 'number' &&
+    typeof candidate.himmelsrichtungText === 'string' &&
     Array.isArray(candidate.farPictograms) &&
     Array.isArray(candidate.farRoutePictograms) &&
     Array.isArray(candidate.nearPictograms) &&
@@ -382,6 +390,14 @@ export function normalizeWegweiserData(
       nearRoutePictograms,
       formatSlug,
       direction,
+      himmelsrichtungGrad:
+        typeof candidate.himmelsrichtungGrad === 'number' && Number.isFinite(candidate.himmelsrichtungGrad)
+          ? candidate.himmelsrichtungGrad
+          : defaults.himmelsrichtungGrad,
+      himmelsrichtungText:
+        typeof candidate.himmelsrichtungText === 'string' && candidate.himmelsrichtungText.trim()
+          ? candidate.himmelsrichtungText.trim()
+          : defaults.himmelsrichtungText,
       routes
     },
     usedDefaults

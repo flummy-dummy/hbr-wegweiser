@@ -15,6 +15,7 @@ export type GeoJsonGeometry =
 export type KatasterCollectionType =
   | 'knoten'
   | 'pfosten'
+  | 'wegweiser'
   | 'kanten'
   | 'themenroute'
   | 'knotenpunktverbindung';
@@ -29,6 +30,11 @@ export type KatasterWegweiserInfo = {
   status?: string;
   wegweiser_typ?: string;
   richtung?: string;
+  himmelsrichtungGrad?: number;
+  himmelsrichtungText?: string;
+  darstellungsAbstand?: number;
+  seitlicherVersatz?: number;
+  anzeigeReihenfolge?: number;
   ziele: string[];
 };
 

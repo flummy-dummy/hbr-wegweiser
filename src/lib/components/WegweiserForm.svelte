@@ -13,6 +13,7 @@
     pictogramOptions as fallbackPictogramOptions,
     routeOptions as fallbackRouteOptions
   } from '$lib/wegweiser';
+  import { gradZuHimmelsrichtung, normalizeHimmelsrichtungGrad } from '$lib/utils/himmelsrichtung';
 
   let {
     data = $bindable(),
@@ -207,6 +208,16 @@
       data.direction = format.direction;
     }
   }
+
+  function updateHimmelsrichtung(value: number | string) {
+    const grad = normalizeHimmelsrichtungGrad(value);
+    data.himmelsrichtungGrad = grad;
+    data.himmelsrichtungText = gradZuHimmelsrichtung(grad);
+  }
+
+  function rotateDirection(delta: number) {
+    updateHimmelsrichtung(data.himmelsrichtungGrad + delta);
+  }
 </script>
 
 {#snippet pictogramPicker(
@@ -359,6 +370,43 @@
       {/if}
     </select>
   </label>
+
+  {#if selectedFormat?.slug?.startsWith('pfeilwegweiser')}
+    <fieldset class="direction-field">
+      <legend>Richtung</legend>
+      <div class="direction-readout">
+        <span>{data.himmelsrichtungText}</span>
+        <strong>{data.himmelsrichtungGrad}°</strong>
+      </div>
+      <div class="direction-controls">
+        <button type="button" onclick={() => rotateDirection(-1)}>−1°</button>
+        <input
+          aria-label="Gradzahl"
+          inputmode="numeric"
+          min="0"
+          max="359"
+          type="number"
+          value={data.himmelsrichtungGrad}
+          oninput={(event) => updateHimmelsrichtung(event.currentTarget.value)}
+        />
+        <button type="button" onclick={() => rotateDirection(1)}>+1°</button>
+      </div>
+      <input
+        aria-label="Richtung"
+        max="359"
+        min="0"
+        type="range"
+        value={data.himmelsrichtungGrad}
+        oninput={(event) => updateHimmelsrichtung(event.currentTarget.value)}
+      />
+      <div class="direction-preset-row">
+        <button type="button" onclick={() => updateHimmelsrichtung(0)}>N</button>
+        <button type="button" onclick={() => updateHimmelsrichtung(90)}>O</button>
+        <button type="button" onclick={() => updateHimmelsrichtung(180)}>S</button>
+        <button type="button" onclick={() => updateHimmelsrichtung(270)}>W</button>
+      </div>
+    </fieldset>
+  {/if}
 
   <fieldset class="routes-field">
     <legend>Routeneinschübe</legend>

@@ -247,6 +247,78 @@
     return data.pfosten.find((entry) => entry.id === id) ?? null;
   }
 
+  async function updateWegweiserOrientation(wegweiserId: string, himmelsrichtungGrad: number) {
+    const normalizedGrad = ((Math.trunc(himmelsrichtungGrad) % 360) + 360) % 360;
+    console.info('[KatasterMap] wegweiser save request', {
+      id: wegweiserId,
+      rotation: normalizedGrad
+    });
+    const response = await fetch(`/api/entwuerfe/${wegweiserId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        himmelsrichtung_grad: normalizedGrad
+      })
+    });
+
+    const result = (await response.json()) as { message?: string; id?: string };
+    console.info('[KatasterMap] wegweiser save response', {
+      id: result?.id ?? wegweiserId,
+      status: response.status,
+      ok: response.ok,
+      message: result?.message ?? null
+    });
+
+    if (!response.ok) {
+      throw new Error(result?.message ?? 'Richtung konnte nicht gespeichert werden.');
+    }
+
+    await invalidateAll();
+    wegweiserWorkflowMessage = result?.message ?? 'Richtung wurde aktualisiert.';
+  }
+
+  async function updateWegweiserPlacement(
+    wegweiserId: string,
+    darstellungsAbstand: number,
+    seitlicherVersatz: number
+  ) {
+    const normalizedDistance = Math.max(Math.trunc(darstellungsAbstand), 0);
+    const normalizedSideOffset = Math.trunc(seitlicherVersatz);
+    console.info('[KatasterMap] wegweiser placement save request', {
+      id: wegweiserId,
+      darstellungsAbstand: normalizedDistance,
+      seitlicherVersatz: normalizedSideOffset
+    });
+
+    const response = await fetch(`/api/entwuerfe/${wegweiserId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        darstellungs_abstand: normalizedDistance,
+        seitlicher_versatz: normalizedSideOffset
+      })
+    });
+
+    const result = (await response.json()) as { message?: string; id?: string };
+    console.info('[KatasterMap] wegweiser placement save response', {
+      id: result?.id ?? wegweiserId,
+      status: response.status,
+      ok: response.ok,
+      message: result?.message ?? null
+    });
+
+    if (!response.ok) {
+      throw new Error(result?.message ?? 'Position konnte nicht gespeichert werden.');
+    }
+
+    await invalidateAll();
+    wegweiserWorkflowMessage = result?.message ?? 'Position wurde aktualisiert.';
+  }
+
   function geometryToPoints(geometry: GeoJsonGeometry | null): DraftPoint[] {
     if (!geometry || geometry.type !== 'LineString' || !Array.isArray(geometry.coordinates)) {
       return [];
@@ -486,6 +558,44 @@
     wegweiserSearch = '';
     selectedExistingWegweiserId = '';
     newWegweiserTitle = '';
+  }
+
+  async function unlinkWegweiserFromPfosten(wegweiserId: string, pfostenId: string) {
+    if (!canEdit) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Nur die Zuordnung zu diesem Pfosten entfernen? Der Wegweiser-Entwurf bleibt erhalten.'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set('wegweiser', wegweiserId);
+    formData.set('pfosten', pfostenId);
+
+    try {
+      const response = await fetch('?/unlinkWegweiserFromPfosten', {
+        method: 'POST',
+        body: formData
+      });
+      const result = (await response.json()) as KnotenFormState;
+
+      if (!response.ok) {
+        wegweiserWorkflowMessage =
+          result?.message ?? 'Die Zuordnung zwischen Wegweiser und Pfosten konnte nicht entfernt werden.';
+        return;
+      }
+
+      wegweiserWorkflowMessage = result?.message ?? 'Zuordnung zum Pfosten wurde entfernt.';
+      await invalidateAll();
+    } catch (error) {
+      console.error('Wegweiser-Zuordnung konnte nicht entfernt werden.', error);
+      wegweiserWorkflowMessage = 'Die Zuordnung zwischen Wegweiser und Pfosten konnte nicht entfernt werden.';
+    }
   }
 
   function wegweiserLabel(wegweiser: KatasterWegweiserInfo): string {
@@ -1219,6 +1329,7 @@
         kanten={data.kanten}
         themenrouten={data.themenrouten}
         knotenpunktverbindungen={data.knotenpunktverbindungen}
+        wegweiser={data.wegweiser}
         {draftMode}
         {draftPoint}
         {edgeDraft}
@@ -1230,9 +1341,18 @@
         onEdgeFeatureSelect={handleEdgeFeatureSelect}
         onPfostenCreateRequest={startPfostenCreationMode}
         onPfostenEditRequest={handleEditPfostenSelect}
+        onWegweiserOrientationChangeRequest={(wegweiserId, grad) => {
+          void updateWegweiserOrientation(wegweiserId, grad);
+        }}
+        onWegweiserPlacementChangeRequest={(wegweiserId, darstellungsAbstand, seitlicherVersatz) => {
+          void updateWegweiserPlacement(wegweiserId, darstellungsAbstand, seitlicherVersatz);
+        }}
         onWegweiserAddRequest={openWegweiserDialog}
         onWegweiserEditRequest={(wegweiserId, pfostenId) => {
           void goto(editorUrlForWegweiser(wegweiserId, pfostenId));
+        }}
+        onWegweiserUnlinkRequest={(wegweiserId, pfostenId) => {
+          void unlinkWegweiserFromPfosten(wegweiserId, pfostenId);
         }}
         focusPfostenId={focusedPfostenId}
         onEdgeVertexSelect={handleEdgeVertexSelect}
@@ -1550,7 +1670,7 @@
                 </label>
               </fieldset>
 
-              {#if draftMode === 'create'}
+        {#if draftMode === 'create'}
                 <div class="kataster-create-actions">
                   <button
                     class="button secondary-button button-small"

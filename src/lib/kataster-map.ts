@@ -1,5 +1,6 @@
 import type { GeoJsonGeometry, KatasterFeatureInfo, KatasterMapRecord } from '$lib/kataster';
 import Feature from 'ol/Feature';
+import type { Coordinate } from 'ol/coordinate';
 import GeoJSON from 'ol/format/GeoJSON';
 import type Geometry from 'ol/geom/Geometry';
 import Point from 'ol/geom/Point';
@@ -14,6 +15,12 @@ const geoJsonFormat = new GeoJSON({
 
 export const katasterFallbackCenter = fromLonLat([7.357, 52.144]);
 export const katasterFallbackZoom = 10;
+export const wegweiserBodyWidthPx = 120;
+export const wegweiserBodyHeightPx = 36;
+export const wegweiserTipLengthPx = 24;
+export const wegweiserMinimumDistancePx = 60;
+export const wegweiserAutomaticSideOffsetStepPx = 60;
+export const wegweiserGapPx = 0;
 
 export function createGeometryFromRecord(record: KatasterMapRecord): Geometry | null {
   if (record.geomJson) {
@@ -121,6 +128,100 @@ export function getKatasterStyle(collection: KatasterMapRecord['collection']): S
       color: '#2f7d32',
       width: 3
     })
+  });
+}
+
+export function getWegweiserStyle(feature: Feature<Geometry>, selected = false, _resolution = 1): Style | Style[] {
+  const grad = typeof feature.get('himmelsrichtungGrad') === 'number' ? feature.get('himmelsrichtungGrad') : 0;
+  const rotation = (grad * Math.PI) / 180;
+  const bodyWidthPx = wegweiserBodyWidthPx;
+  const bodyHeightPx = wegweiserBodyHeightPx;
+  const tipLengthPx = wegweiserTipLengthPx;
+  const gapPx = wegweiserGapPx;
+  const distancePx =
+    typeof feature.get('darstellungsAbstand') === 'number'
+      ? Math.max(feature.get('darstellungsAbstand'), wegweiserMinimumDistancePx)
+      : wegweiserMinimumDistancePx;
+  const sideOffsetPx = typeof feature.get('seitlicherVersatz') === 'number' ? feature.get('seitlicherVersatz') : 0;
+  const dirX = Math.sin(rotation);
+  const dirY = -Math.cos(rotation);
+  const perpX = Math.cos(rotation);
+  const perpY = Math.sin(rotation);
+  const bodyHalfWidthPx = bodyWidthPx / 2;
+  const bodyHalfHeightPx = bodyHeightPx / 2;
+  const attachmentOffsetPx = distancePx;
+  const centerOffsetPx = attachmentOffsetPx + bodyHalfWidthPx + gapPx;
+
+  function getAnchorPixel(
+    pixelCoordinates: Coordinate | Coordinate[] | Coordinate[][] | Coordinate[][][]
+  ): [number, number] {
+    if (typeof pixelCoordinates[0] === 'number') {
+      return [pixelCoordinates[0] as number, pixelCoordinates[1] as number];
+    }
+
+    const first = pixelCoordinates[0] as number[] | number[][];
+
+    if (typeof first[0] === 'number') {
+      const coordinate = first as number[];
+      return [coordinate[0] ?? 0, coordinate[1] ?? 0];
+    }
+
+    const nested = first[0] as number[];
+    return [nested[0] ?? 0, nested[1] ?? 0];
+  }
+
+  function drawWegweiserBody(
+    pixelCoordinates: Coordinate | Coordinate[] | Coordinate[][] | Coordinate[][][],
+    state: { context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D }
+  ) {
+    const context = state.context;
+    const [anchorX, anchorY] = getAnchorPixel(pixelCoordinates);
+    const bodyCenterPixelX = anchorX + centerOffsetPx * dirX + sideOffsetPx * perpX;
+    const bodyCenterPixelY = anchorY + centerOffsetPx * dirY + sideOffsetPx * perpY;
+    const attachmentPixelX = anchorX + attachmentOffsetPx * dirX + sideOffsetPx * perpX;
+    const attachmentPixelY = anchorY + attachmentOffsetPx * dirY + sideOffsetPx * perpY;
+    const bodyStartX = bodyCenterPixelX - bodyHalfWidthPx * dirX;
+    const bodyStartY = bodyCenterPixelY - bodyHalfWidthPx * dirY;
+    const bodyEndX = bodyCenterPixelX + bodyHalfWidthPx * dirX;
+    const bodyEndY = bodyCenterPixelY + bodyHalfWidthPx * dirY;
+    const tipBaseLeftX = bodyEndX + bodyHalfHeightPx * perpX;
+    const tipBaseLeftY = bodyEndY + bodyHalfHeightPx * perpY;
+    const tipBaseRightX = bodyEndX - bodyHalfHeightPx * perpX;
+    const tipBaseRightY = bodyEndY - bodyHalfHeightPx * perpY;
+    const tipX = bodyEndX + tipLengthPx * dirX;
+    const tipY = bodyEndY + tipLengthPx * dirY;
+    const backLeftX = bodyStartX - bodyHalfHeightPx * perpX;
+    const backLeftY = bodyStartY - bodyHalfHeightPx * perpY;
+    const backRightX = bodyStartX + bodyHalfHeightPx * perpX;
+    const backRightY = bodyStartY + bodyHalfHeightPx * perpY;
+
+    context.beginPath();
+    context.moveTo(anchorX, anchorY);
+    context.lineTo(attachmentPixelX, attachmentPixelY);
+    context.strokeStyle = '#888888';
+    context.lineWidth = selected ? 2 : 1.5;
+    context.lineCap = 'butt';
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(backLeftX, backLeftY);
+    context.lineTo(tipBaseRightX, tipBaseRightY);
+    context.lineTo(tipX, tipY);
+    context.lineTo(tipBaseLeftX, tipBaseLeftY);
+    context.lineTo(backRightX, backRightY);
+    context.closePath();
+    context.fillStyle = '#ffffff';
+    context.strokeStyle = selected ? '#1d4ed8' : '#000000';
+    context.lineWidth = selected ? 2.25 : 1.75;
+    context.lineJoin = 'miter';
+    context.lineCap = 'butt';
+    context.fill();
+    context.stroke();
+  }
+  return new Style({
+    renderer: drawWegweiserBody,
+    hitDetectionRenderer: drawWegweiserBody,
+    zIndex: selected ? 40 : 35
   });
 }
 

@@ -43,6 +43,8 @@
       nearRoutePictograms: [],
       formatSlug: 'pfeilwegweiser_rechts',
       direction: 'right',
+      himmelsrichtungGrad: 0,
+      himmelsrichtungText: 'Norden',
       routes: []
     };
   }

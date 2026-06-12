@@ -1,4 +1,5 @@
 import { createPocketBaseClient } from '$lib/server/pocketbase';
+import { gradZuHimmelsrichtung, normalizeHimmelsrichtungGrad } from '$lib/utils/himmelsrichtung';
 import type {
   GeoJsonGeometry,
   KatasterCollectionType,
@@ -113,6 +114,7 @@ function targetText(record: RecordModel, textField: string, distanceField: strin
 
 function mapWegweiserInfo(record: RecordModel): KatasterWegweiserInfo & { pfostenId: string } {
   const title = stringField(record, ['titel', 'wegweiser_nr'], 'Wegweiser');
+  const himmelsrichtungGrad = normalizeHimmelsrichtungGrad(record.himmelsrichtung_grad);
   const ziele = [
     targetText(record, 'ziel_oben_text', 'ziel_oben_entfernung') ||
       targetText(record, 'fernziel_text', 'fernziel_entfernung'),
@@ -130,6 +132,11 @@ function mapWegweiserInfo(record: RecordModel): KatasterWegweiserInfo & { pfoste
     status: stringField(record, ['status']) || undefined,
     wegweiser_typ: stringField(record, ['wegweiser_typ']) || undefined,
     richtung: stringField(record, ['richtung']) || undefined,
+    himmelsrichtungGrad,
+    himmelsrichtungText: stringField(record, ['himmelsrichtung_text']) || gradZuHimmelsrichtung(himmelsrichtungGrad),
+    darstellungsAbstand: numberField(record, 'darstellungs_abstand') ?? undefined,
+    seitlicherVersatz: numberField(record, 'seitlicher_versatz') ?? undefined,
+    anzeigeReihenfolge: numberField(record, 'anzeige_reihenfolge') ?? undefined,
     ziele
   };
 }

@@ -1,5 +1,6 @@
 import { isWegweiserData, parseDistance } from '$lib/wegweiser';
 import type { WegweiserData, WegweiserStatus } from '$lib/wegweiser';
+import { gradZuHimmelsrichtung, normalizeHimmelsrichtungGrad } from '$lib/utils/himmelsrichtung';
 
 export type SaveDraftPayload = {
   titel?: unknown;
@@ -65,6 +66,7 @@ export function parseDraftPayload(payload: SaveDraftPayload): { titel: string; w
 }
 
 export function createDraftRecordData(titel: string, wegweiser: WegweiserData, meta: DraftMeta = {}) {
+  const himmelsrichtungGrad = normalizeHimmelsrichtungGrad(wegweiser.himmelsrichtungGrad);
   return {
     titel,
     wegweiser_nr: meta.wegweiser_nr ?? '',
@@ -74,6 +76,8 @@ export function createDraftRecordData(titel: string, wegweiser: WegweiserData, m
     status: meta.status ?? '',
     wegweiser_typ: 'arrow',
     richtung: wegweiser.direction,
+    himmelsrichtung_grad: himmelsrichtungGrad,
+    himmelsrichtung_text: gradZuHimmelsrichtung(himmelsrichtungGrad),
     ziel_oben_text: wegweiser.farDestination.trim(),
     ziel_oben_entfernung: parseDistance(wegweiser.farDistance),
     ziel_unten_text: wegweiser.nearDestination.trim(),
